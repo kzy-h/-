@@ -7,6 +7,11 @@ export type PetActionId =
   | "pillowSleep"
   | "breakReminder"
   | "clickProtest"
+  | "sideEye"
+  | "handsOnHips"
+  | "shyTurn"
+  | "happyWave"
+  | "thinking"
   | "dragPanic"
   | "sleepMask"
   | "cookie"
@@ -69,6 +74,41 @@ export const PET_ACTIONS: Record<PetActionId, PetAction> = {
     durationMs: 2200,
     priority: 70,
   },
+  sideEye: {
+    id: "sideEye",
+    // 02 扶眼罩并侧目映射在角色包的「自信」情绪位。
+    file: "自信.png",
+    durationMs: 2600,
+    priority: 70,
+  },
+  handsOnHips: {
+    id: "handsOnHips",
+    // 03 叉腰傲娇吐槽映射在角色包的「厌恶」情绪位。
+    file: "厌恶.png",
+    durationMs: 2800,
+    priority: 70,
+  },
+  shyTurn: {
+    id: "shyTurn",
+    // 05 害羞脸红扭头映射在角色包的「害羞」情绪位。
+    file: "害羞.png",
+    durationMs: 2600,
+    priority: 70,
+  },
+  happyWave: {
+    id: "happyWave",
+    // 06 开心挥手映射在角色包的「高兴」情绪位。
+    file: "高兴.png",
+    durationMs: 3000,
+    priority: 65,
+  },
+  thinking: {
+    id: "thinking",
+    // 09 托下巴思考映射在角色包的「认真」情绪位。
+    file: "认真.png",
+    durationMs: 0,
+    priority: 55,
+  },
   dragPanic: {
     id: "dragPanic",
     // 31 动作角色包中这张同时承担“慌张”情绪，位于 avatar 目录。
@@ -97,12 +137,17 @@ export const PET_ACTIONS: Record<PetActionId, PetAction> = {
   headphones: {
     id: "headphones",
     file: "31_戴耳机听歌轻晃.png",
-    durationMs: 5200,
+    durationMs: 12_000,
     priority: 30,
   },
 };
 
-export const DAY_IDLE_ACTIONS: PetActionId[] = ["yawn", "edgeSit", "peek", "cookie", "headphones"];
+export const CLICK_REACTIONS: PetActionId[] = ["clickProtest", "sideEye", "handsOnHips", "shyTurn"];
+
+export const DOUBLE_CLICK_REACTIONS: PetActionId[] = ["knock", "happyWave"];
+
+// 戴耳机不再作为无条件空闲动作；它由真实的背景音乐播放状态触发。
+export const DAY_IDLE_ACTIONS: PetActionId[] = ["yawn", "edgeSit", "peek", "cookie"];
 
 export const NIGHT_IDLE_ACTIONS: PetActionId[] = [
   "yawn",

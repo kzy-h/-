@@ -53,6 +53,11 @@ export function usePetActions(canPlayIdle: () => boolean = () => true) {
     return true;
   }
 
+  function playRandomAction(candidates: PetActionId[], force = false): boolean {
+    if (candidates.length === 0) return false;
+    return playAction(pickAction(candidates, lastActionId.value), force);
+  }
+
   function noteInteraction() {
     lastInteractionAt.value = Date.now();
   }
@@ -88,6 +93,7 @@ export function usePetActions(canPlayIdle: () => boolean = () => true) {
     currentAction,
     actionFile,
     playAction,
+    playRandomAction,
     finishAction,
     noteInteraction,
   };

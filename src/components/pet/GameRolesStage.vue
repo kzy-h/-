@@ -173,6 +173,7 @@
   }>();
 
   const mainAudio = ref<HTMLAudioElement | null>(null);
+  const audioActive = ref(false);
   const voiceDataUrl = ref("");
   const live2dActiveRoleIds = ref(new Set<number>());
   const live2dFailedRoleIds = ref(new Set<number>());
@@ -223,6 +224,13 @@
   onUnmounted(() => destroyScreenshot());
 
   // --- 音频 ---
+  const finishCurrentAudio = () => {
+    if (!audioActive.value) return;
+    audioActive.value = false;
+    setVoicePlaying(false);
+    emit("audio-ended");
+  };
+
   watch(
     () => uiStore.currentAvatarAudio,
     async (newAudio) => {
@@ -232,11 +240,13 @@
         voiceDataUrl.value = "";
         mainAudio.value.pause();
         mainAudio.value.currentTime = 0;
-        setVoicePlaying(false);
+        finishCurrentAudio();
         return;
       }
 
       try {
+        // 新语音替换旧语音时先完整结束旧状态，避免桌宠永久停留在“正在说话”。
+        if (audioActive.value) finishCurrentAudio();
         const dataUrl = await getVoiceAudio(newAudio);
         voiceDataUrl.value = dataUrl;
         mainAudio.value.src = dataUrl;
@@ -246,15 +256,17 @@
         mainAudio.value
           .play()
           .then(() => {
+            audioActive.value = true;
             setVoicePlaying(true);
             emit("audio-started");
           })
           .catch((e) => {
             console.error("播放失败", e);
-            setVoicePlaying(false);
+            finishCurrentAudio();
           });
       } catch (e) {
         console.error("获取语音文件失败:", e);
+        finishCurrentAudio();
       }
     }
   );
@@ -267,8 +279,7 @@
   );
 
   const onAudioEnded = () => {
-    setVoicePlaying(false);
-    emit("audio-ended");
+    finishCurrentAudio();
   };
 
   // --- 语音输入（与桌面 GameDialog 同源：useAsrInput 模块级单例共享会话） ---
