@@ -27,10 +27,15 @@
       <div
         ref="avatarContainer"
         class="flex shrink-0 items-center justify-center bg-transparent transition-all duration-100"
-        :style="{ width: 'var(--avatar-size)', height: 'var(--avatar-size)' }"
+        :style="{ width: 'var(--avatar-width)', height: 'var(--avatar-height)' }"
       >
         <GameRolesStage
+          :action-file="petActions.actionFile.value"
           @avatar-click="handleAvatarClick"
+          @avatar-double-click="handleAvatarDoubleClick"
+          @drag-start="handleAvatarDragStart"
+          @drag-end="handleAvatarDragEnd"
+          @action-unavailable="handleActionUnavailable"
           @open-settings="handleOpenSettings"
           @switch-auto-mode="handleSwitchAutoMode"
           @exit-pet-mode="handleExitPetMode"
@@ -63,13 +68,19 @@
   import { useI18n } from "vue-i18n";
   import { useRouter } from "vue-router";
   import { useFileDrop } from "../pet/useFileDrop";
+  import { usePetActions } from "@/composables/usePetActions";
 
   import ChatInput from "../pet/ChatInput.vue";
   import DialogueBox from "../pet/DialogueBox.vue";
   import DragArea from "../pet/DragArea.vue";
   import GameRolesStage from "../pet/GameRolesStage.vue";
   import PetNotification from "../pet/PetNotification.vue";
-  import { BASE_AVATAR_SIZE, CHAT_BASE_H, DIALOG_MAX_BASE } from "../pet/constants";
+  import {
+    BASE_AVATAR_HEIGHT,
+    BASE_AVATAR_WIDTH,
+    CHAT_BASE_H,
+    DIALOG_MAX_BASE,
+  } from "../pet/constants";
 
   const { t } = useI18n();
   const router = useRouter();
@@ -84,6 +95,7 @@
   const chatContainer = ref<HTMLElement | null>(null);
   const gameDialogRef = ref<InstanceType<typeof DialogueBox> | null>(null);
   const ChatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
+  const petActions = usePetActions(() => gameStore.currentStatus !== "thinking");
 
   const appStyleVars = computed(() => {
     const scale = settingsStore.pet?.scale || 1.0;
@@ -92,17 +104,19 @@
       "--pet-ui-scale": scale.toString(),
       "--app-width": `${layout.width}px`,
       "--app-height": `${layout.height}px`,
-      "--avatar-size": `${Math.round(BASE_AVATAR_SIZE * scale)}px`,
+      "--avatar-width": `${Math.round(BASE_AVATAR_WIDTH * scale)}px`,
+      "--avatar-height": `${Math.round(BASE_AVATAR_HEIGHT * scale)}px`,
       "--chat-h": `${Math.round(CHAT_BASE_H * scale)}px`,
       "--dialog-h": `${Math.round(DIALOG_MAX_BASE * scale)}px`,
     };
   });
 
   const calcWindowLayout = (scale: number): { width: number; height: number } => {
-    const S = Math.round(BASE_AVATAR_SIZE * scale);
+    const avatarWidth = Math.round(BASE_AVATAR_WIDTH * scale);
+    const avatarHeight = Math.round(BASE_AVATAR_HEIGHT * scale);
     const chatH = Math.round(CHAT_BASE_H * scale);
     const dialogH = Math.round(DIALOG_MAX_BASE * scale);
-    return { width: S, height: S + dialogH + chatH };
+    return { width: avatarWidth, height: avatarHeight + dialogH + chatH };
   };
 
   const applyWindowLayout = async () => {
@@ -207,6 +221,14 @@
     }
   );
 
+  // 日程、待办等应用内提醒出现时，让角色主动敲屏幕；久坐提醒有自己的递咖啡动作。
+  watch(
+    () => uiStore.notification.isVisible,
+    (visible, wasVisible) => {
+      if (visible && !wasVisible) petActions.playAction("knock");
+    }
+  );
+
   // 监听 dialogHistory 变化，推送给设置窗口
   watch(
     () => gameStore.dialogHistory.length,
@@ -231,6 +253,10 @@
     if (hitTestInterval !== undefined) {
       window.clearInterval(hitTestInterval);
     }
+    if (avatarClickTimer !== null) {
+      window.clearTimeout(avatarClickTimer);
+      avatarClickTimer = null;
+    }
   });
 
   const handleMessageSent = (message: string) => {
@@ -254,10 +280,52 @@
     }
   };
 
-  const handleAvatarClick = () => {
+  let avatarClickTimer: number | null = null;
+
+  const advanceDialogue = () => {
     manualTriggerContinue();
     eventQueue.continue();
     resetInteraction();
+  };
+
+  const handleAvatarClick = () => {
+    petActions.noteInteraction();
+    if (avatarClickTimer !== null) window.clearTimeout(avatarClickTimer);
+    // 等待双击判定，避免一次双击连续触发两次“鼓脸抗议”。
+    avatarClickTimer = window.setTimeout(() => {
+      avatarClickTimer = null;
+      petActions.playAction("clickProtest");
+      advanceDialogue();
+    }, 260);
+  };
+
+  const handleAvatarDoubleClick = () => {
+    if (avatarClickTimer !== null) {
+      window.clearTimeout(avatarClickTimer);
+      avatarClickTimer = null;
+    }
+    petActions.noteInteraction();
+    petActions.playAction("knock", true);
+  };
+
+  const handleAvatarDragStart = () => {
+    if (avatarClickTimer !== null) {
+      window.clearTimeout(avatarClickTimer);
+      avatarClickTimer = null;
+    }
+    petActions.noteInteraction();
+    petActions.playAction("dragPanic", true);
+  };
+
+  const handleAvatarDragEnd = () => {
+    petActions.finishAction("dragPanic");
+    petActions.noteInteraction();
+  };
+
+  const handleActionUnavailable = (file: string) => {
+    if (petActions.currentAction.value?.file === file) {
+      petActions.finishAction();
+    }
   };
 
   const handleOpenSettings = async () => {
