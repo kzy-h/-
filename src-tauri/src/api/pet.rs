@@ -124,11 +124,10 @@ pub async fn set_pet_mode(
         if enable {
             let scale_val = scale.unwrap_or(1.0);
 
-            // 窗口尺寸基于桌宠组件尺寸计算：BASE_AVATAR_SIZE = 240, CHAT_BASE_H = 45, DIALOG_MAX_BASE = 200
-            // GameRoleAvatar 头像框: Math.round(210 * scale)，使用标准桌宠尺寸:
-            // Width: 240 * scale, Height: (240 + 200 + 45) * scale = 485 * scale
-            let width = (240.0 * scale_val) as u32;
-            let height = ((240.0 + 200.0 + 45.0) * scale_val) as u32;
+            // 与前端 pet/constants.ts 保持一致。静态立绘采用 2:3 全身画布，
+            // 不再塞进 240×240 的圆形头像框。
+            let width = (300.0 * scale_val) as u32;
+            let height = ((450.0 + 200.0 + 45.0) * scale_val) as u32;
 
             let _ = window.set_skip_taskbar(true);
             let _ = window.set_always_on_top(true);

@@ -522,6 +522,78 @@ pub fn get_avatar_file(
     ))
 }
 
+/// 读取角色包 `extra_actions` 目录中的桌宠动作立绘。
+///
+/// 前端只传文件名（不能包含路径分隔符），避免角色包借此跳出素材目录。
+/// 主角色与剧本/NPC 角色沿用 `get_avatar_file` 相同的查找顺序。
+#[tauri::command]
+pub fn get_pet_action_file(
+    character_folder: String,
+    action_file: String,
+) -> Result<String, String> {
+    let action_path = std::path::Path::new(&action_file);
+    let is_plain_file_name = action_path.file_name().and_then(|name| name.to_str())
+        == Some(action_file.as_str())
+        && action_path.components().count() == 1;
+    if !is_plain_file_name || action_file.is_empty() {
+        return Err("动作立绘文件名不合法".to_string());
+    }
+
+    let allowed_extensions = ["png", "jpg", "jpeg", "webp", "bmp", "gif"];
+    let extension = action_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if !allowed_extensions.contains(&extension.as_str()) {
+        return Err("动作立绘格式不受支持".to_string());
+    }
+
+    let mut candidate_dirs = Vec::new();
+
+    let main_root = resolve_character_dir(&character_folder);
+    let main_actions = main_root.join("extra_actions");
+    if main_actions.exists() {
+        candidate_dirs.push(main_actions);
+    }
+    let main_avatar = main_root.join("avatar");
+    if main_avatar.exists() {
+        candidate_dirs.push(main_avatar);
+    }
+
+    for script_dir in script_package_dirs() {
+        let npc_actions = script_dir
+            .join("characters")
+            .join(&character_folder)
+            .join("extra_actions");
+        if npc_actions.exists() {
+            candidate_dirs.push(npc_actions);
+        }
+        let npc_avatar = script_dir
+            .join("characters")
+            .join(&character_folder)
+            .join("avatar");
+        if npc_avatar.exists() {
+            candidate_dirs.push(npc_avatar);
+        }
+    }
+
+    for directory in candidate_dirs {
+        let candidate = directory.join(&action_file);
+        if candidate.is_file() {
+            let canon = candidate
+                .canonicalize()
+                .map_err(|e| format!("路径解析失败: {}", e))?;
+            return Ok(canon.to_string_lossy().into_owned());
+        }
+    }
+
+    Err(format!(
+        "未找到桌宠动作立绘: folder={}, file={}",
+        character_folder, action_file
+    ))
+}
+
 #[tauri::command]
 pub async fn select_clothes(
     app: AppHandle,
