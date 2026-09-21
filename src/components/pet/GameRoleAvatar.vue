@@ -81,7 +81,7 @@
 </template>
 
 <script setup lang="ts">
-  import { ref, computed, watch, nextTick, toRefs } from "vue";
+  import { ref, computed, watch, nextTick, onUnmounted, toRefs } from "vue";
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import ImageCrossFade from "@/components/ui/ImageAcrossFade.vue";
@@ -117,8 +117,50 @@
   // 这里手动接管：按下后位移超过阈值才进入原生窗口拖曳，未超过则保持为普通点击
   // （头像的 click 仍会派发，"点击头像推进对话"不受影响）。
   const DRAG_THRESHOLD_PX = 4;
+  const DRAG_BUTTON_POLL_MS = 45;
+  const DRAG_SAFETY_TIMEOUT_MS = 30_000;
 
   let suppressClickUntil = 0;
+  let dragActive = false;
+  let dragReleasePollId: number | null = null;
+  let dragSafetyTimeoutId: number | null = null;
+
+  const clearDragTracking = () => {
+    if (dragReleasePollId !== null) {
+      window.clearTimeout(dragReleasePollId);
+      dragReleasePollId = null;
+    }
+    if (dragSafetyTimeoutId !== null) {
+      window.clearTimeout(dragSafetyTimeoutId);
+      dragSafetyTimeoutId = null;
+    }
+  };
+
+  const finishWindowDrag = () => {
+    if (!dragActive) return;
+    dragActive = false;
+    clearDragTracking();
+    suppressClickUntil = Date.now() + 300;
+    emit("drag-end");
+  };
+
+  const pollPrimaryMouseButton = async () => {
+    if (!dragActive) return;
+    try {
+      const isDown = await invoke<boolean | null>("primary_mouse_button_down");
+      if (isDown === false) {
+        finishWindowDrag();
+        return;
+      }
+      // null 表示当前平台不提供系统级按键状态，改由 startDragging Promise 收尾。
+      if (isDown === null) return;
+    } catch (error) {
+      console.warn("读取鼠标按键状态失败，将使用原生拖动完成时机", error);
+      return;
+    }
+
+    dragReleasePollId = window.setTimeout(pollPrimaryMouseButton, DRAG_BUTTON_POLL_MS);
+  };
 
   const startWindowDrag = (e: MouseEvent) => {
     if (e.button !== 0) return;
@@ -145,20 +187,30 @@
       // 交给系统接管后 webview 收不到后续鼠标事件，先摘监听器再启动拖曳
       cleanup();
       suppressClickUntil = Date.now() + 300;
+      dragActive = true;
       emit("drag-start");
+      void pollPrimaryMouseButton();
+      dragSafetyTimeoutId = window.setTimeout(finishWindowDrag, DRAG_SAFETY_TIMEOUT_MS);
       try {
         await getCurrentWindow().startDragging();
-      } finally {
-        suppressClickUntil = Date.now() + 300;
-        // 部分平台的原生拖动命令会立即 resolve，至少保留一小段慌张动作，
-        // 否则用户只能看到一帧切换。
-        window.setTimeout(() => emit("drag-end"), 900);
+        // 有的平台在鼠标松开后才 resolve；Windows 若立即 resolve，则由上面的
+        // 系统按键轮询继续守住动作，直到真正检测到松手。
+        const isDown = await invoke<boolean | null>("primary_mouse_button_down").catch(() => null);
+        if (isDown !== true) finishWindowDrag();
+      } catch (error) {
+        console.error("启动窗口拖动失败", error);
+        finishWindowDrag();
       }
     };
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", cleanup);
   };
+
+  onUnmounted(() => {
+    dragActive = false;
+    clearDragTracking();
+  });
 
   const activeAnimationClass = ref("normal");
   const isBubbleVisible = ref(false);
