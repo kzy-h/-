@@ -33,7 +33,6 @@
 <script setup lang="ts">
   import { ref, computed, watch, nextTick, toRefs } from "vue";
   import { invoke } from "@tauri-apps/api/core";
-  import { convertFileSrc } from "@tauri-apps/api/core";
   import { useGameStore } from "@/stores/modules/game";
   import { useUIStore } from "@/stores/modules/ui/ui";
   import { EMOTION_CONFIG, EMOTION_CONFIG_EMO } from "@/controllers/emotion/config";
@@ -42,6 +41,7 @@
   import StaticRolePresentation from "./StaticRolePresentation.vue";
   import TouchAreas from "./TouchAreas.vue";
   import "./avatar-animation.css";
+  import { toAvatarUrl } from "@/utils/avatarUrl";
 
   const props = defineProps<{
     role: GameRole;
@@ -184,10 +184,17 @@
         emotion: mappedEmotion,
         clothesName,
       });
+      const avatarUrl = await toAvatarUrl(path);
       if (currentId === resolveAvatarId) {
-        targetAvatarUrl.value = convertFileSrc(path);
+        targetAvatarUrl.value = avatarUrl;
       }
-    } catch {
+    } catch (error) {
+      console.error("立绘加载失败", {
+        roleId: r.roleId,
+        characterFolder: r.character_folder,
+        emotion: mappedEmotion,
+        error,
+      });
       if (currentId === resolveAvatarId) {
         targetAvatarUrl.value = "";
       }
