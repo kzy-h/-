@@ -714,6 +714,7 @@ pub fn run() {
             api::character::get_role_settings,
             api::character::get_character_file,
             api::character::get_avatar_file,
+            api::character::get_pet_action_file,
             api::character::select_clothes,
             api::character::update_role_settings,
             api::character::delete_character,
