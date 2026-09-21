@@ -2,6 +2,9 @@ name: 构建瞌睡米塔增强版（Windows）
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - mita-pet-enhanced
 
 permissions:
   contents: read
