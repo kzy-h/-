@@ -117,6 +117,12 @@ fn seed_desktop(
         return Ok(());
     }
 
+    // 增强版兼容修复：旧版本允许用户单独导入米塔角色包，但角色目录由 zip
+    // 文件名派生，升级或换包名后旧存档很容易指向空目录。安装包现在自带一份
+    // 稳定资源；即使 data/.seeded 已存在，也把缺失文件补齐到可预测目录。
+    // 这里只复制目标中不存在的文件，不覆盖用户已经修改过的同名素材。
+    seed_sleepy_mita_character(&official, data_dir)?;
+
     if !seeded.exists() {
         // 首次启动：全量播种
         tracing::info!("First launch — seeding from .official/");
@@ -127,6 +133,45 @@ fn seed_desktop(
     }
     // seeded 存在 + official 存在 → 更新待处理，不自动操作
 
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn seed_sleepy_mita_character(
+    official_dir: &std::path::Path,
+    data_dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    let folder = crate::api::SLEEPY_MITA_RESOURCE_FOLDER;
+    let src = official_dir
+        .join("game_data")
+        .join("characters")
+        .join(folder);
+    if !src.is_dir() {
+        return Ok(());
+    }
+
+    let dst = data_dir
+        .join("game_data")
+        .join("characters")
+        .join(folder);
+    copy_missing_files(&src, &dst)?;
+    tracing::info!("Ensured bundled Sleepy Mita assets at {}", dst.display());
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn copy_missing_files(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let source = entry.path();
+        let target = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_missing_files(&source, &target)?;
+        } else if !target.exists() {
+            std::fs::copy(&source, &target)?;
+        }
+    }
     Ok(())
 }
 

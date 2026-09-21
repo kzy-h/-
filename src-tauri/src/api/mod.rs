@@ -66,6 +66,13 @@ pub(crate) fn characters_dir() -> PathBuf {
 /// 插件角色的 `resource_folder` 编码前缀：`plugin:<plugin_id>/<folder>`。
 pub const PLUGIN_ROLE_PREFIX: &str = "plugin:";
 
+/// 瞌睡米塔增强版内置资源的稳定目录名。
+///
+/// 早期角色包使用过多个压缩包文件名，导入器会据此生成不同的
+/// `resource_folder`。旧存档因此可能仍指向已经不存在的目录。增强版把素材固定
+/// 内置到这个目录，并在旧目录失效时兼容回退。
+pub const SLEEPY_MITA_RESOURCE_FOLDER: &str = "瞌睡米塔LingChat角色包";
+
 /// 编码插件角色的 resource_folder 值。
 pub fn encode_plugin_folder(plugin_id: &str, folder: &str) -> String {
     format!("{PLUGIN_ROLE_PREFIX}{plugin_id}/{folder}")
@@ -93,7 +100,33 @@ pub fn resolve_character_dir(resource_folder: &str) -> PathBuf {
 /// `resolve_character_dir` 的显式 base 版本（供已持有 data_dir 的调用方使用，如 role_repo）。
 /// 复用底层 `utils::path::resolve_character_path`（其内部已处理 `plugin:` 编码前缀）。
 pub fn resolve_character_dir_in(base_data_dir: &std::path::Path, resource_folder: &str) -> PathBuf {
-    crate::utils::path::resolve_character_path(base_data_dir, resource_folder)
+    let exact = crate::utils::path::resolve_character_path(base_data_dir, resource_folder);
+
+    // 角色包导入目录由 zip 文件名派生。此前发放过不同文件名的米塔角色包，
+    // 已有存档会保留旧 resource_folder；升级安装后该目录可能不存在，最终表现为
+    // “名字和台词正常、整个人物透明”。只在精确目录缺少基础立绘时启用此兼容层，
+    // 已正确导入或用户自行修改过的角色目录仍然优先。
+    if resource_folder.contains("瞌睡米塔") && resource_folder != SLEEPY_MITA_RESOURCE_FOLDER {
+        let exact_has_avatar = ["png", "webp", "jpg", "jpeg", "gif", "bmp"]
+            .iter()
+            .any(|ext| exact.join("avatar").join(format!("正常.{ext}")).is_file());
+        if !exact_has_avatar {
+            let bundled = crate::utils::path::resolve_character_path(
+                base_data_dir,
+                SLEEPY_MITA_RESOURCE_FOLDER,
+            );
+            if bundled.join("settings.yml").is_file() {
+                tracing::warn!(
+                    "角色目录 {:?} 缺少基础立绘，回退到内置瞌睡米塔资源 {:?}",
+                    exact,
+                    bundled
+                );
+                return bundled;
+            }
+        }
+    }
+
+    exact
 }
 
 pub(crate) fn backgrounds_dir() -> PathBuf {

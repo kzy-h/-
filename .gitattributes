@@ -2,6 +2,9 @@
 *.mp3 filter=lfs diff=lfs merge=lfs -text
 *.webp filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
+# 瞌睡米塔增强版由 GitHub 网页维护；仅该目录绕过 LFS，保证素材能随分支与安装包构建。
+data/game_data/characters/瞌睡米塔LingChat角色包/avatar/*.png -filter -diff -merge
+data/game_data/characters/瞌睡米塔LingChat角色包/extra_actions/*.png -filter -diff -merge
 *.jpg filter=lfs diff=lfs merge=lfs -text
 *.safetensors filter=lfs diff=lfs merge=lfs -text
 *.7z filter=lfs diff=lfs merge=lfs -text
@@ -33,4 +36,3 @@
 *.bat text eol=crlf working-tree-encoding=UTF-8
 *.cmd text eol=crlf working-tree-encoding=UTF-8
 *.ps1 text eol=crlf working-tree-encoding=UTF-8
-
