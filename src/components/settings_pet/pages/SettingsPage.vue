@@ -47,10 +47,12 @@
               :PET_SCALE_MIN="PET_SCALE_MIN"
               :PET_SCALE_MAX="PET_SCALE_MAX"
               :petVolume="petVolume"
+              :behaviorSettings="petBehaviorSettings"
               @updateScale="updateScale"
               @resetScale="resetScale"
               @updateVolume="updateVolume"
               @resetVolume="resetVolume"
+              @updateBehavior="updateBehavior"
             />
             <HistoryTab
               v-else-if="activeTab === 'interaction'"
@@ -71,7 +73,11 @@
   import { useI18n } from "vue-i18n";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   // 替换为你项目中实际存在的 store 路径
-  import { DEFAULT_SETTINGS, useSettingsStore } from "../../../stores/modules/settings";
+  import {
+    DEFAULT_SETTINGS,
+    useSettingsStore,
+    type PetSettings,
+  } from "../../../stores/modules/settings";
 
   const PET_SCALE_DEFAULT = 1.0;
   const PET_SCALE_MAX = 1.3;
@@ -88,6 +94,7 @@
   import TodoTab from "../components/tabs/TodoTab.vue";
   const PET_SCALE_EVENT = "pet-scale-changed";
   const PET_VOLUME_EVENT = "pet-volume-changed";
+  const PET_BEHAVIOR_EVENT = "pet-behavior-settings-changed";
   const DIALOG_HISTORY_EVENT = "dialog-history-changed";
   const DARK_MODE_KEY = "lingchat-dark-mode";
   const appWindow = getCurrentWindow();
@@ -150,6 +157,10 @@
 
   const petScale = computed(() => settingsStore.pet.scale);
   const petVolume = computed(() => settingsStore.characterVolume);
+  const petBehaviorSettings = computed<PetSettings>(() => ({
+    ...DEFAULT_SETTINGS.pet,
+    ...settingsStore.pet,
+  }));
 
   const syncMaximizedState = async () => {
     isMaximized.value = await appWindow.isMaximized();
@@ -180,6 +191,11 @@
 
   const resetVolume = async () => {
     await updateVolume(DEFAULT_SETTINGS.audio.characterVolume);
+  };
+
+  const updateBehavior = async <K extends keyof PetSettings>(key: K, value: PetSettings[K]) => {
+    settingsStore.updatePet({ [key]: value } as Pick<PetSettings, K>);
+    await appWindow.emit(PET_BEHAVIOR_EVENT, { ...settingsStore.pet });
   };
 
   const minimizeWindow = async () => {

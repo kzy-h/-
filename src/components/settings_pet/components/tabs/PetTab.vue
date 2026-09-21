@@ -106,6 +106,110 @@
         duration-300"
       :class="isDarkMode ? 'border-slate-700 bg-slate-800/50' : 'border-slate-200 bg-white'"
     >
+      <SlidersHorizontal
+        class="absolute -right-4 -bottom-4 h-32 w-32 -rotate-12 opacity-10 transition-all
+          duration-300 group-hover:scale-110"
+        :class="isDarkMode ? 'text-slate-700' : 'text-slate-200'"
+      />
+
+      <div class="relative z-10">
+        <h3
+          class="mb-1 flex items-center gap-2 text-lg font-bold"
+          :class="isDarkMode ? 'text-slate-200' : 'text-slate-800'"
+        >
+          <SlidersHorizontal class="h-5 w-5 text-sky-500" />
+          {{ $t("pet.petTab.behaviorTitle") }}
+        </h3>
+        <p class="mb-4 text-xs" :class="isDarkMode ? 'text-slate-400' : 'text-slate-500'">
+          {{ $t("pet.petTab.behaviorDesc") }}
+        </p>
+
+        <div class="grid gap-3 md:grid-cols-2">
+          <div
+            v-for="option in behaviorToggleOptions"
+            :key="option.key"
+            class="flex items-center justify-between gap-3 rounded-lg border p-3 transition-colors"
+            :class="
+              isDarkMode ? 'border-slate-700 bg-slate-900/40' : 'border-slate-100 bg-slate-50'
+            "
+          >
+            <div>
+              <div
+                class="text-sm font-bold"
+                :class="isDarkMode ? 'text-slate-200' : 'text-slate-700'"
+              >
+                {{ option.label }}
+              </div>
+              <div
+                class="mt-0.5 text-[11px]"
+                :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'"
+              >
+                {{ option.desc }}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              :aria-checked="behaviorSettings[option.key]"
+              class="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+              :class="behaviorSettings[option.key] ? 'bg-sky-500' : 'bg-slate-400/50'"
+              @click="toggleBehavior(option.key)"
+            >
+              <span
+                class="absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow-sm
+                  transition-transform"
+                :class="behaviorSettings[option.key] ? 'translate-x-5' : 'translate-x-0'"
+              ></span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          class="mt-4 flex flex-col gap-3 border-t pt-4 md:flex-row md:items-center
+            md:justify-between"
+          :class="isDarkMode ? 'border-slate-700' : 'border-slate-100'"
+        >
+          <div>
+            <div
+              class="text-sm font-bold"
+              :class="isDarkMode ? 'text-slate-200' : 'text-slate-700'"
+            >
+              {{ $t("pet.petTab.frequencyTitle") }}
+            </div>
+            <div
+              class="mt-0.5 text-[11px]"
+              :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'"
+            >
+              {{ $t("pet.petTab.frequencyDesc") }}
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button
+              v-for="option in frequencyOptions"
+              :key="option.value"
+              type="button"
+              class="rounded-lg border px-4 py-2 text-xs font-bold transition-all"
+              :class="[
+                behaviorSettings.actionFrequency === option.value
+                  ? 'border-sky-500 bg-sky-500 text-white shadow-sm'
+                  : isDarkMode
+                    ? 'border-slate-600 text-slate-400 hover:border-sky-500 hover:text-sky-400'
+                    : 'border-slate-200 text-slate-500 hover:border-sky-400 hover:text-sky-500',
+              ]"
+              @click="setActionFrequency(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="group relative mt-4 overflow-hidden rounded-xl border p-6 shadow-sm transition-colors
+        duration-300"
+      :class="isDarkMode ? 'border-slate-700 bg-slate-800/50' : 'border-slate-200 bg-white'"
+    >
       <Ruler
         class="absolute -right-4 -bottom-4 h-32 w-32 -rotate-12 opacity-50 transition-all
           duration-300 group-hover:scale-110"
@@ -310,8 +414,10 @@
     Stars,
     Sun,
     Volume2,
+    SlidersHorizontal,
   } from "lucide-vue-next";
   import { useUIStore } from "../../../../stores/modules/ui/ui";
+  import type { PetSettings } from "../../../../stores/modules/settings";
   import { getCurrentWindow } from "@tauri-apps/api/window";
 
   const props = defineProps<{
@@ -320,13 +426,21 @@
     petVolume: number;
     PET_SCALE_MIN: number;
     PET_SCALE_MAX: number;
+    behaviorSettings: PetSettings;
   }>();
+
+  type BooleanBehaviorKey =
+    | "clickInteractionEnabled"
+    | "idleActionsEnabled"
+    | "musicActionsEnabled"
+    | "preserveSpeakingPoseWhileDragging";
 
   const emit = defineEmits<{
     updateScale: [value: number];
     resetScale: [];
     updateVolume: [value: number];
     resetVolume: [];
+    updateBehavior: [key: keyof PetSettings, value: boolean | PetSettings["actionFrequency"]];
   }>();
 
   const uiStore = useUIStore();
@@ -345,6 +459,45 @@
     { label: t("pet.petTab.particleStarField"), value: "StarField", icon: Stars },
     { label: t("pet.petTab.particleBA"), value: "BA", icon: Sun },
   ]);
+
+  const behaviorToggleOptions = computed<
+    Array<{ key: BooleanBehaviorKey; label: string; desc: string }>
+  >(() => [
+    {
+      key: "clickInteractionEnabled",
+      label: t("pet.petTab.clickInteraction"),
+      desc: t("pet.petTab.clickInteractionDesc"),
+    },
+    {
+      key: "idleActionsEnabled",
+      label: t("pet.petTab.idleActions"),
+      desc: t("pet.petTab.idleActionsDesc"),
+    },
+    {
+      key: "musicActionsEnabled",
+      label: t("pet.petTab.musicActions"),
+      desc: t("pet.petTab.musicActionsDesc"),
+    },
+    {
+      key: "preserveSpeakingPoseWhileDragging",
+      label: t("pet.petTab.preserveSpeakingPose"),
+      desc: t("pet.petTab.preserveSpeakingPoseDesc"),
+    },
+  ]);
+
+  const frequencyOptions = computed(() => [
+    { label: t("pet.petTab.frequencyLow"), value: "low" as const },
+    { label: t("pet.petTab.frequencyNormal"), value: "normal" as const },
+    { label: t("pet.petTab.frequencyHigh"), value: "high" as const },
+  ]);
+
+  const toggleBehavior = (key: BooleanBehaviorKey) => {
+    emit("updateBehavior", key, !props.behaviorSettings[key]);
+  };
+
+  const setActionFrequency = (value: PetSettings["actionFrequency"]) => {
+    emit("updateBehavior", "actionFrequency", value);
+  };
 
   const selectParticle = async (value: string) => {
     uiStore.setBackgroundEffect(value);

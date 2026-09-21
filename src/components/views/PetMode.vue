@@ -69,7 +69,14 @@
   import { useRouter } from "vue-router";
   import { useFileDrop } from "../pet/useFileDrop";
   import { usePetActions } from "@/composables/usePetActions";
-  import { CLICK_REACTIONS, DOUBLE_CLICK_REACTIONS } from "@/components/pet/pet-actions";
+  import {
+    CLICK_REACTIONS_BY_ZONE,
+    DOUBLE_CLICK_REACTIONS,
+    RAPID_CLICK_REACTIONS,
+    REPEATED_CLICK_REACTIONS,
+    type PetActionFrequency,
+    type PetHitZone,
+  } from "@/components/pet/pet-actions";
 
   import ChatInput from "../pet/ChatInput.vue";
   import DialogueBox from "../pet/DialogueBox.vue";
@@ -98,9 +105,22 @@
   const ChatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
   const audioFinished = ref(true);
   const characterSpeaking = ref(false);
-  const petActions = usePetActions(
-    () => gameStore.currentStatus === "input" && !characterSpeaking.value
+  const clickInteractionsEnabled = computed(
+    () => settingsStore.pet?.clickInteractionEnabled !== false
   );
+  const idleActionsEnabled = computed(() => settingsStore.pet?.idleActionsEnabled !== false);
+  const musicActionsEnabled = computed(() => settingsStore.pet?.musicActionsEnabled !== false);
+  const preserveSpeakingPoseWhileDragging = computed(
+    () => settingsStore.pet?.preserveSpeakingPoseWhileDragging !== false
+  );
+  const actionFrequency = computed<PetActionFrequency>(
+    () => settingsStore.pet?.actionFrequency ?? "normal"
+  );
+  const petActions = usePetActions({
+    canPlayIdle: () =>
+      idleActionsEnabled.value && gameStore.currentStatus === "input" && !characterSpeaking.value,
+    getIdleFrequency: () => actionFrequency.value,
+  });
 
   const appStyleVars = computed(() => {
     const scale = settingsStore.pet?.scale || 1.0;
@@ -138,6 +158,7 @@
   let effectUnlisten: (() => void) | null = null;
   let volumeUnlisten: (() => void) | null = null;
   let dialogHistoryUnlisten: (() => void) | null = null;
+  let behaviorSettingsUnlisten: (() => void) | null = null;
   let musicActionTimer: number | null = null;
 
   const isBackgroundMusicPlaying = computed(
@@ -147,6 +168,9 @@
       !uiStore.bgMusicPaused &&
       !uiStore.bgMusicStoped
   );
+  const canShowMusicAction = computed(
+    () => isBackgroundMusicPlaying.value && musicActionsEnabled.value
+  );
 
   const clearMusicActionTimer = () => {
     if (musicActionTimer !== null) {
@@ -155,13 +179,19 @@
     }
   };
 
+  const getMusicRepeatDelay = () => {
+    if (actionFrequency.value === "low") return 75_000 + Math.random() * 45_000;
+    if (actionFrequency.value === "high") return 25_000 + Math.random() * 20_000;
+    return 45_000 + Math.random() * 30_000;
+  };
+
   const scheduleHeadphonesAction = (delayMs = 1800) => {
     clearMusicActionTimer();
-    if (!isBackgroundMusicPlaying.value) return;
+    if (!canShowMusicAction.value) return;
 
     musicActionTimer = window.setTimeout(() => {
       musicActionTimer = null;
-      if (!isBackgroundMusicPlaying.value) return;
+      if (!canShowMusicAction.value) return;
 
       const canListenNow =
         !characterSpeaking.value &&
@@ -203,6 +233,14 @@
         settingsStore.updateAudio({ characterVolume: volume });
       }
     });
+
+    behaviorSettingsUnlisten = await appWindow.listen<Partial<typeof settingsStore.pet>>(
+      "pet-behavior-settings-changed",
+      (event) => {
+        settingsStore.pet = { ...settingsStore.pet, ...event.payload };
+        petActions.refreshIdleSchedule();
+      }
+    );
 
     // 响应设置窗口的初始历史数据请求
     dialogHistoryUnlisten = await appWindow.listen("request-dialog-history", () => {
@@ -273,7 +311,7 @@
 
   // “戴耳机听歌”只跟随真实的背景音乐状态，不再作为无音乐时的随机空闲动作。
   watch(
-    isBackgroundMusicPlaying,
+    canShowMusicAction,
     (playing) => {
       if (playing) {
         scheduleHeadphonesAction();
@@ -291,8 +329,8 @@
   watch(
     () => petActions.currentActionId.value,
     (actionId) => {
-      if (actionId === null && isBackgroundMusicPlaying.value && musicActionTimer === null) {
-        scheduleHeadphonesAction(45_000 + Math.random() * 30_000);
+      if (actionId === null && canShowMusicAction.value && musicActionTimer === null) {
+        scheduleHeadphonesAction(getMusicRepeatDelay());
       }
     }
   );
@@ -329,6 +367,7 @@
     if (effectUnlisten) effectUnlisten();
     if (volumeUnlisten) volumeUnlisten();
     if (dialogHistoryUnlisten) dialogHistoryUnlisten();
+    if (behaviorSettingsUnlisten) behaviorSettingsUnlisten();
     clearMusicActionTimer();
 
     if (hitTestInterval !== undefined) {
@@ -363,6 +402,24 @@
 
   let avatarClickTimer: number | null = null;
   let dragVisualActionActive = false;
+  let consecutiveClickCount = 0;
+  let lastSingleClickAt = 0;
+
+  const REPEATED_CLICK_WINDOW_MS = 3_500;
+
+  watch([idleActionsEnabled, actionFrequency], () => {
+    petActions.refreshIdleSchedule();
+    if (canShowMusicAction.value && musicActionTimer !== null) {
+      scheduleHeadphonesAction(getMusicRepeatDelay());
+    }
+  });
+
+  watch(clickInteractionsEnabled, (enabled) => {
+    if (!enabled) {
+      consecutiveClickCount = 0;
+      lastSingleClickAt = 0;
+    }
+  });
 
   const advanceDialogue = () => {
     manualTriggerContinue();
@@ -370,24 +427,39 @@
     resetInteraction();
   };
 
-  const handleAvatarClick = () => {
+  const handleAvatarClick = (zone: PetHitZone) => {
     petActions.noteInteraction();
     if (avatarClickTimer !== null) window.clearTimeout(avatarClickTimer);
     // 等待双击判定，避免一次双击连续触发两次“鼓脸抗议”。
     avatarClickTimer = window.setTimeout(() => {
       avatarClickTimer = null;
-      petActions.playRandomAction(CLICK_REACTIONS);
+      if (clickInteractionsEnabled.value) {
+        const now = Date.now();
+        consecutiveClickCount =
+          now - lastSingleClickAt <= REPEATED_CLICK_WINDOW_MS ? consecutiveClickCount + 1 : 1;
+        lastSingleClickAt = now;
+
+        const candidates =
+          consecutiveClickCount >= 3
+            ? RAPID_CLICK_REACTIONS
+            : consecutiveClickCount === 2
+              ? REPEATED_CLICK_REACTIONS
+              : CLICK_REACTIONS_BY_ZONE[zone];
+        petActions.playRandomAction(candidates, consecutiveClickCount >= 2);
+      }
       advanceDialogue();
     }, 260);
   };
 
-  const handleAvatarDoubleClick = () => {
+  const handleAvatarDoubleClick = (_zone: PetHitZone) => {
     if (avatarClickTimer !== null) {
       window.clearTimeout(avatarClickTimer);
       avatarClickTimer = null;
     }
     petActions.noteInteraction();
-    petActions.playRandomAction(DOUBLE_CLICK_REACTIONS, true);
+    if (clickInteractionsEnabled.value) {
+      petActions.playRandomAction(DOUBLE_CLICK_REACTIONS, true);
+    }
   };
 
   const handleAvatarDragStart = () => {
@@ -398,7 +470,7 @@
     petActions.noteInteraction();
 
     // 角色正在说话时只移动窗口，不替换当前对话情绪立绘，也不触碰音频播放器。
-    if (characterSpeaking.value) {
+    if (characterSpeaking.value && preserveSpeakingPoseWhileDragging.value) {
       dragVisualActionActive = false;
       return;
     }
