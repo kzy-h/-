@@ -1,0 +1,47 @@
+name: 构建瞌睡米塔增强版（Windows）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: 检出源码与素材
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: 安装 Node.js 与 pnpm
+        uses: pnpm/setup@v1
+        with:
+          runtime: node@26
+          cache: true
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Rust 编译结果
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建独立增强版安装包
+        run: pnpm tauri:mita:build
+
+      - name: 上传 Windows 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: sleepy-mita-lingchat-enhanced-windows
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
