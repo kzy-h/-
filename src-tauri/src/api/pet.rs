@@ -5,6 +5,8 @@ use tauri::AppHandle;
 use tauri::LogicalSize;
 #[cfg(desktop)]
 use tauri::Manager;
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 
 // 桌宠点击穿透命中区（桌面端专属，移动端仅作为命令参数反序列化、不读取）。
 #[cfg_attr(not(desktop), allow(dead_code))]
@@ -43,6 +45,25 @@ impl Default for HitTestState {
 pub fn update_solid_regions(rects: Vec<Rect>, state: tauri::State<'_, HitTestState>) {
     if let Ok(mut locked) = state.solid_rects.lock() {
         *locked = rects;
+    }
+}
+
+/// 返回系统主鼠标键当前是否仍按下。
+///
+/// 原生窗口拖动开始后 WebView 通常收不到 mouseup，因此前端不能只靠 DOM 事件判断
+/// 用户何时放下桌宠。Windows 版通过系统按键状态精确结束拖动动作；其他平台返回
+/// `None`，前端退回到原生拖动 Promise 的完成时机。
+#[tauri::command]
+pub fn primary_mouse_button_down() -> Option<bool> {
+    #[cfg(target_os = "windows")]
+    {
+        let state = unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) };
+        return Some((state as u16 & 0x8000) != 0);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
     }
 }
 
