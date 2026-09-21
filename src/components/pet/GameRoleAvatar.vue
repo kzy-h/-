@@ -91,6 +91,7 @@
   import { useUIStore } from "@/stores/modules/ui/ui";
   import "./avatar-animation.css";
   import { toAvatarUrl } from "@/utils/avatarUrl";
+  import type { PetHitZone } from "./pet-actions";
 
   const props = defineProps<{
     role: GameRole;
@@ -101,8 +102,8 @@
   const { role } = toRefs(props);
 
   const emit = defineEmits<{
-    "avatar-click": [];
-    "avatar-double-click": [];
+    "avatar-click": [zone: PetHitZone];
+    "avatar-double-click": [zone: PetHitZone];
     "drag-start": [];
     "drag-end": [];
     "action-unavailable": [file: string];
@@ -240,14 +241,31 @@
     backgroundImage: `url(${currentBubbleImageUrl.value})`,
   }));
 
-  const handleAvatarClick = () => {
-    if (Date.now() < suppressClickUntil) return;
-    emit("avatar-click");
+  const getHitZone = (event: MouseEvent): PetHitZone => {
+    const target = event.currentTarget as HTMLElement | null;
+    if (!target) return "body";
+
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return "body";
+
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+
+    // 米塔立绘为统一的 2:3 透明画布：脸位于上部中央，周围区域主要是头发。
+    // 使用比例坐标后，桌宠整体缩放时命中范围仍保持一致。
+    if (y >= 0.08 && y <= 0.34 && x >= 0.28 && x <= 0.72) return "face";
+    if (y <= 0.44) return "hair";
+    return "body";
   };
 
-  const handleAvatarDoubleClick = () => {
+  const handleAvatarClick = (event: MouseEvent) => {
     if (Date.now() < suppressClickUntil) return;
-    emit("avatar-double-click");
+    emit("avatar-click", getHitZone(event));
+  };
+
+  const handleAvatarDoubleClick = (event: MouseEvent) => {
+    if (Date.now() < suppressClickUntil) return;
+    emit("avatar-double-click", getHitZone(event));
   };
 
   const handleAnimationEnd = () => {

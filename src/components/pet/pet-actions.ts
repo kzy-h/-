@@ -18,6 +18,15 @@ export type PetActionId =
   | "blanket"
   | "headphones";
 
+export type PetHitZone = "face" | "hair" | "body";
+
+export type PetActionFrequency = "low" | "normal" | "high";
+
+export interface WeightedPetAction {
+  id: PetActionId;
+  weight: number;
+}
+
 export interface PetAction {
   id: PetActionId;
   file: string;
@@ -142,19 +151,32 @@ export const PET_ACTIONS: Record<PetActionId, PetAction> = {
   },
 };
 
-export const CLICK_REACTIONS: PetActionId[] = ["clickProtest", "sideEye", "handsOnHips", "shyTurn"];
+export const CLICK_REACTIONS_BY_ZONE: Record<PetHitZone, PetActionId[]> = {
+  face: ["sideEye", "shyTurn", "clickProtest"],
+  hair: ["sideEye", "shyTurn", "happyWave"],
+  body: ["handsOnHips", "clickProtest", "sideEye"],
+};
+
+export const REPEATED_CLICK_REACTIONS: PetActionId[] = ["sideEye", "handsOnHips", "clickProtest"];
+
+export const RAPID_CLICK_REACTIONS: PetActionId[] = ["clickProtest", "handsOnHips"];
 
 export const DOUBLE_CLICK_REACTIONS: PetActionId[] = ["knock", "happyWave"];
 
 // 戴耳机不再作为无条件空闲动作；它由真实的背景音乐播放状态触发。
-export const DAY_IDLE_ACTIONS: PetActionId[] = ["yawn", "edgeSit", "peek", "cookie"];
+export const DAY_IDLE_ACTIONS: WeightedPetAction[] = [
+  { id: "yawn", weight: 4 },
+  { id: "edgeSit", weight: 2 },
+  { id: "peek", weight: 3 },
+  { id: "cookie", weight: 1 },
+];
 
-export const NIGHT_IDLE_ACTIONS: PetActionId[] = [
-  "yawn",
-  "deskSleep",
-  "pillowSleep",
-  "sleepMask",
-  "blanket",
+export const NIGHT_IDLE_ACTIONS: WeightedPetAction[] = [
+  { id: "yawn", weight: 3 },
+  { id: "deskSleep", weight: 3 },
+  { id: "pillowSleep", weight: 2 },
+  { id: "sleepMask", weight: 2 },
+  { id: "blanket", weight: 1 },
 ];
 
 export function isSleepyHour(hour: number): boolean {
@@ -169,4 +191,26 @@ export function pickAction(
   const pool = candidates.length > 1 ? candidates.filter((id) => id !== previous) : candidates;
   const index = Math.min(pool.length - 1, Math.floor(random() * pool.length));
   return pool[Math.max(0, index)];
+}
+
+export function pickWeightedAction(
+  candidates: WeightedPetAction[],
+  previous: PetActionId | null,
+  random = Math.random
+): PetActionId {
+  const pool =
+    candidates.length > 1
+      ? candidates.filter((candidate) => candidate.id !== previous)
+      : candidates;
+  const totalWeight = pool.reduce((sum, candidate) => sum + Math.max(0, candidate.weight), 0);
+
+  if (totalWeight <= 0) return pool[0]?.id ?? candidates[0].id;
+
+  let cursor = random() * totalWeight;
+  for (const candidate of pool) {
+    cursor -= Math.max(0, candidate.weight);
+    if (cursor < 0) return candidate.id;
+  }
+
+  return pool[pool.length - 1]?.id ?? candidates[0].id;
 }

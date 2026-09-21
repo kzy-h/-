@@ -124,8 +124,8 @@
         :action-file="actionFile"
         :live2d-active="live2dActiveRoleIds.has(singleRole.roleId)"
         :live2d-failed="live2dFailedRoleIds.has(singleRole.roleId)"
-        @avatar-click="emit('avatar-click')"
-        @avatar-double-click="emit('avatar-double-click')"
+        @avatar-click="(zone) => emit('avatar-click', zone)"
+        @avatar-double-click="(zone) => emit('avatar-double-click', zone)"
         @drag-start="emit('drag-start')"
         @drag-end="emit('drag-end')"
         @action-unavailable="(file) => emit('action-unavailable', file)"
@@ -151,6 +151,7 @@
   import Live2DStage from "../game/live2d/Live2DStage.vue";
   import { Play, Pause, Settings, LogOut, Camera, Mic, MicOff } from "lucide-vue-next";
   import { BASE_AVATAR_HEIGHT, BASE_AVATAR_WIDTH } from "./constants";
+  import type { PetHitZone } from "./pet-actions";
 
   defineProps<{ actionFile?: string }>();
 
@@ -162,8 +163,8 @@
   const emit = defineEmits<{
     "audio-ended": [];
     "audio-started": [];
-    "avatar-click": [];
-    "avatar-double-click": [];
+    "avatar-click": [zone: PetHitZone];
+    "avatar-double-click": [zone: PetHitZone];
     "drag-start": [];
     "drag-end": [];
     "action-unavailable": [file: string];
