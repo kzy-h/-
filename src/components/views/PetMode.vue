@@ -69,6 +69,7 @@
   import { useRouter } from "vue-router";
   import { useFileDrop } from "../pet/useFileDrop";
   import { usePetActions } from "@/composables/usePetActions";
+  import { CLICK_REACTIONS, DOUBLE_CLICK_REACTIONS } from "@/components/pet/pet-actions";
 
   import ChatInput from "../pet/ChatInput.vue";
   import DialogueBox from "../pet/DialogueBox.vue";
@@ -95,7 +96,11 @@
   const chatContainer = ref<HTMLElement | null>(null);
   const gameDialogRef = ref<InstanceType<typeof DialogueBox> | null>(null);
   const ChatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
-  const petActions = usePetActions(() => gameStore.currentStatus !== "thinking");
+  const audioFinished = ref(true);
+  const characterSpeaking = ref(false);
+  const petActions = usePetActions(
+    () => gameStore.currentStatus === "input" && !characterSpeaking.value
+  );
 
   const appStyleVars = computed(() => {
     const scale = settingsStore.pet?.scale || 1.0;
@@ -133,6 +138,43 @@
   let effectUnlisten: (() => void) | null = null;
   let volumeUnlisten: (() => void) | null = null;
   let dialogHistoryUnlisten: (() => void) | null = null;
+  let musicActionTimer: number | null = null;
+
+  const isBackgroundMusicPlaying = computed(
+    () =>
+      Boolean(uiStore.currentBackgroundMusic) &&
+      uiStore.currentBackgroundMusic !== "None" &&
+      !uiStore.bgMusicPaused &&
+      !uiStore.bgMusicStoped
+  );
+
+  const clearMusicActionTimer = () => {
+    if (musicActionTimer !== null) {
+      window.clearTimeout(musicActionTimer);
+      musicActionTimer = null;
+    }
+  };
+
+  const scheduleHeadphonesAction = (delayMs = 1800) => {
+    clearMusicActionTimer();
+    if (!isBackgroundMusicPlaying.value) return;
+
+    musicActionTimer = window.setTimeout(() => {
+      musicActionTimer = null;
+      if (!isBackgroundMusicPlaying.value) return;
+
+      const canListenNow =
+        !characterSpeaking.value &&
+        gameStore.currentStatus === "input" &&
+        petActions.currentActionId.value === null;
+      if (!canListenNow) {
+        scheduleHeadphonesAction(2500);
+        return;
+      }
+
+      petActions.playAction("headphones");
+    }, delayMs);
+  };
 
   onMounted(async () => {
     const appWindow = getCurrentWindow();
@@ -229,6 +271,44 @@
     }
   );
 
+  // “戴耳机听歌”只跟随真实的背景音乐状态，不再作为无音乐时的随机空闲动作。
+  watch(
+    isBackgroundMusicPlaying,
+    (playing) => {
+      if (playing) {
+        scheduleHeadphonesAction();
+      } else {
+        clearMusicActionTimer();
+        if (petActions.currentActionId.value === "headphones") {
+          petActions.finishAction("headphones");
+        }
+      }
+    },
+    { immediate: true }
+  );
+
+  // 一轮听歌动作结束或被互动打断后，音乐仍在播放则稍后再次出现。
+  watch(
+    () => petActions.currentActionId.value,
+    (actionId) => {
+      if (actionId === null && isBackgroundMusicPlaying.value && musicActionTimer === null) {
+        scheduleHeadphonesAction(45_000 + Math.random() * 30_000);
+      }
+    }
+  );
+
+  // AI 思考期间使用“托下巴思考”，进入正式说话后由角色对话情绪接管。
+  watch(
+    () => gameStore.currentStatus,
+    (status, previousStatus) => {
+      if (status === "thinking" && !characterSpeaking.value) {
+        petActions.playAction("thinking");
+      } else if (previousStatus === "thinking" && petActions.currentActionId.value === "thinking") {
+        petActions.finishAction("thinking");
+      }
+    }
+  );
+
   // 监听 dialogHistory 变化，推送给设置窗口
   watch(
     () => gameStore.dialogHistory.length,
@@ -249,6 +329,7 @@
     if (effectUnlisten) effectUnlisten();
     if (volumeUnlisten) volumeUnlisten();
     if (dialogHistoryUnlisten) dialogHistoryUnlisten();
+    clearMusicActionTimer();
 
     if (hitTestInterval !== undefined) {
       window.clearInterval(hitTestInterval);
@@ -281,6 +362,7 @@
   };
 
   let avatarClickTimer: number | null = null;
+  let dragVisualActionActive = false;
 
   const advanceDialogue = () => {
     manualTriggerContinue();
@@ -294,7 +376,7 @@
     // 等待双击判定，避免一次双击连续触发两次“鼓脸抗议”。
     avatarClickTimer = window.setTimeout(() => {
       avatarClickTimer = null;
-      petActions.playAction("clickProtest");
+      petActions.playRandomAction(CLICK_REACTIONS);
       advanceDialogue();
     }, 260);
   };
@@ -305,7 +387,7 @@
       avatarClickTimer = null;
     }
     petActions.noteInteraction();
-    petActions.playAction("knock", true);
+    petActions.playRandomAction(DOUBLE_CLICK_REACTIONS, true);
   };
 
   const handleAvatarDragStart = () => {
@@ -314,12 +396,30 @@
       avatarClickTimer = null;
     }
     petActions.noteInteraction();
-    petActions.playAction("dragPanic", true);
+
+    // 角色正在说话时只移动窗口，不替换当前对话情绪立绘，也不触碰音频播放器。
+    if (characterSpeaking.value) {
+      dragVisualActionActive = false;
+      return;
+    }
+
+    dragVisualActionActive = petActions.playAction("dragPanic", true);
   };
 
   const handleAvatarDragEnd = () => {
-    petActions.finishAction("dragPanic");
+    if (dragVisualActionActive) {
+      petActions.finishAction("dragPanic");
+      dragVisualActionActive = false;
+    }
     petActions.noteInteraction();
+
+    if (
+      gameStore.currentStatus === "thinking" &&
+      !characterSpeaking.value &&
+      petActions.currentActionId.value === null
+    ) {
+      petActions.playAction("thinking");
+    }
   };
 
   const handleActionUnavailable = (file: string) => {
@@ -363,7 +463,6 @@
   // 自动打字/对话逻辑
   let timerId: any = null;
   const isContinueTriggered = ref(false);
-  const audioFinished = ref(true);
 
   const resetInteraction = () => {
     isContinueTriggered.value = false;
@@ -395,10 +494,18 @@
 
   const handleAudioStarted = () => {
     audioFinished.value = false;
+    characterSpeaking.value = true;
+
+    // 正式说话时让对话情绪立绘接管。即使此刻仍在拖动，也保持该立绘到松手。
+    if (petActions.currentActionId.value !== null) {
+      petActions.finishAction();
+    }
+    dragVisualActionActive = false;
   };
 
   const handleAudioFinished = () => {
     audioFinished.value = true;
+    characterSpeaking.value = false;
     tryAutoAdvance();
   };
 
