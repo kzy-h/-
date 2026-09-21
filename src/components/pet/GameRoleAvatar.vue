@@ -82,7 +82,7 @@
 
 <script setup lang="ts">
   import { ref, computed, watch, nextTick, toRefs } from "vue";
-  import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+  import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import ImageCrossFade from "@/components/ui/ImageAcrossFade.vue";
   import type { GameRole } from "@/stores/modules/game/state";
@@ -90,6 +90,7 @@
   import { EMOTION_CONFIG, EMOTION_CONFIG_EMO } from "@/controllers/emotion/config";
   import { useUIStore } from "@/stores/modules/ui/ui";
   import "./avatar-animation.css";
+  import { toAvatarUrl } from "@/utils/avatarUrl";
 
   const props = defineProps<{
     role: GameRole;
@@ -220,8 +221,9 @@
           characterFolder: r.character_folder,
           actionFile: props.actionFile,
         });
+        const avatarUrl = await toAvatarUrl(path);
         if (currentId === resolveAvatarId) {
-          targetAvatarUrl.value = convertFileSrc(path);
+          targetAvatarUrl.value = avatarUrl;
         }
         return;
       } catch {
@@ -236,10 +238,17 @@
         emotion: mappedEmotion,
         clothesName,
       });
+      const avatarUrl = await toAvatarUrl(path);
       if (currentId === resolveAvatarId) {
-        targetAvatarUrl.value = convertFileSrc(path);
+        targetAvatarUrl.value = avatarUrl;
       }
-    } catch {
+    } catch (error) {
+      console.error("桌宠立绘加载失败", {
+        roleId: r.roleId,
+        characterFolder: r.character_folder,
+        emotion: mappedEmotion,
+        error,
+      });
       if (currentId === resolveAvatarId) {
         targetAvatarUrl.value = "";
       }
