@@ -64,6 +64,11 @@ export const DEFAULT_SETTINGS = {
   // 桌宠设置
   pet: {
     scale: 1, // 桌宠缩放比例
+    clickInteractionEnabled: true, // 点击不同区域触发动作
+    idleActionsEnabled: true, // 随机待机动作
+    musicActionsEnabled: true, // 播放音乐时触发耳机动作
+    preserveSpeakingPoseWhileDragging: true, // 说话时拖动保持对话立绘
+    actionFrequency: "normal" as const, // 动作频率
   },
   // 剧本编辑器快捷键（默认不含 Command 键；可在编辑器快捷键面板自定义）
   shortcuts: DEFAULT_SHORTCUTS,
@@ -121,6 +126,11 @@ export interface CharacterSettings {
 
 export interface PetSettings {
   scale: number;
+  clickInteractionEnabled: boolean;
+  idleActionsEnabled: boolean;
+  musicActionsEnabled: boolean;
+  preserveSpeakingPoseWhileDragging: boolean;
+  actionFrequency: "low" | "normal" | "high";
 }
 
 export interface SettingsState {
@@ -236,6 +246,7 @@ export const useSettingsStore = defineStore("settings", {
         this.text = { ...DEFAULT_SETTINGS.text };
         this.audio = { ...DEFAULT_SETTINGS.audio };
         this.display = { ...DEFAULT_SETTINGS.display };
+        this.pet = { ...DEFAULT_SETTINGS.pet };
         this.shortcuts = { ...DEFAULT_SETTINGS.shortcuts };
       } else {
         const keys = path.split(".");
@@ -411,9 +422,13 @@ export const useSettingsStore = defineStore("settings", {
     // 设置桌宠缩放比例
     setPetScale(scale: number) {
       if (!this.pet) {
-        this.pet = { scale: 1.0 };
+        this.pet = { ...DEFAULT_SETTINGS.pet };
       }
       this.pet.scale = scale;
+    },
+
+    updatePet(updates: Partial<PetSettings>) {
+      this.pet = { ...DEFAULT_SETTINGS.pet, ...this.pet, ...updates };
     },
   },
 
