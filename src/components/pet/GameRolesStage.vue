@@ -3,7 +3,7 @@
     <!-- 缩放与尺寸控制层 (无位移) -->
     <div
       class="animate-pet-scale relative transition-transform duration-300 ease-out"
-      :style="{ width: frameSize + 'px', height: frameSize + 'px' }"
+      :style="{ width: frameWidth + 'px', height: frameHeight + 'px' }"
     >
       <!-- 设置按钮 -->
       <button
@@ -106,7 +106,7 @@
       <!-- Live2D 角色渲染（上游合并） -->
       <Live2DStage
         v-if="singleRole?.live2d"
-        class="z-11 rounded-full"
+        class="z-11"
         :roles="singleRole ? [singleRole] : []"
         mode="pet"
         :active-speaker-id="gameStore.currentInteractRoleId"
@@ -121,9 +121,14 @@
         v-if="singleRole"
         :key="singleRole.roleId"
         :role="singleRole"
+        :action-file="actionFile"
         :live2d-active="live2dActiveRoleIds.has(singleRole.roleId)"
         :live2d-failed="live2dFailedRoleIds.has(singleRole.roleId)"
         @avatar-click="emit('avatar-click')"
+        @avatar-double-click="emit('avatar-double-click')"
+        @drag-start="emit('drag-start')"
+        @drag-end="emit('drag-end')"
+        @action-unavailable="(file) => emit('action-unavailable', file)"
       />
     </div>
 
@@ -145,20 +150,27 @@
   import RoleAvatar from "./GameRoleAvatar.vue";
   import Live2DStage from "../game/live2d/Live2DStage.vue";
   import { Play, Pause, Settings, LogOut, Camera, Mic, MicOff } from "lucide-vue-next";
+  import { BASE_AVATAR_HEIGHT, BASE_AVATAR_WIDTH } from "./constants";
+
+  defineProps<{ actionFile?: string }>();
 
   const { t } = useI18n();
   const gameStore = useGameStore();
   const uiStore = useUIStore();
   const settingsStore = useSettingsStore();
 
-  const emit = defineEmits([
-    "audio-ended",
-    "audio-started",
-    "avatar-click",
-    "open-settings",
-    "switch-auto-mode",
-    "exit-pet-mode",
-  ]);
+  const emit = defineEmits<{
+    "audio-ended": [];
+    "audio-started": [];
+    "avatar-click": [];
+    "avatar-double-click": [];
+    "drag-start": [];
+    "drag-end": [];
+    "action-unavailable": [file: string];
+    "open-settings": [];
+    "switch-auto-mode": [];
+    "exit-pet-mode": [];
+  }>();
 
   const mainAudio = ref<HTMLAudioElement | null>(null);
   const voiceDataUrl = ref("");
@@ -177,9 +189,14 @@
     return gameStore.presentRolesList.length > 0 ? gameStore.presentRolesList[0] : null;
   });
 
-  const frameSize = computed(() => {
+  const frameWidth = computed(() => {
     const scale = settingsStore.pet?.scale || 1;
-    return Math.round(210 * scale);
+    return Math.round(BASE_AVATAR_WIDTH * scale);
+  });
+
+  const frameHeight = computed(() => {
+    const scale = settingsStore.pet?.scale || 1;
+    return Math.round(BASE_AVATAR_HEIGHT * scale);
   });
 
   // --- 截图 ---

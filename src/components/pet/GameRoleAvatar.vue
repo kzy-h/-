@@ -2,6 +2,7 @@
   <div
     class="group relative flex h-full w-full items-center justify-center"
     @click="handleAvatarClick"
+    @dblclick="handleAvatarDoubleClick"
   >
     <!-- 缩放与尺寸控制层 (无位移) -->
     <div class="relative h-full w-full">
@@ -25,52 +26,27 @@
         </div>
       </div>
 
-      <!-- 3. 常驻特效：现代科技感流光圆环 -->
-      <div
-        class="animate-pulse-slow pointer-events-none absolute inset-3 rounded-full border-[1.5px]
-          border-cyan-400/20"
-      ></div>
-      <!-- 流光扫边特效环 -->
-      <div
-        class="sweep-glow-ring pointer-events-none absolute -inset-1 rounded-full
-          drop-shadow-[0_0_6px_rgba(34,211,238,0.4)]"
-      ></div>
-
-      <!-- 5. 核心头像框 -->
+      <!-- 5. 全身透明立绘。桌宠模式不再使用圆形头像框与 object-cover 裁切。 -->
       <!--
         data-tauri-drag-region="false" 是刻意的：Tauri 注入的 drag.js 对「裸属性」要求
         事件目标就是标注元素本身（el === composedPath[0]），而下面的头像图片容器铺满整个框，
         事件目标永远是子元素，官方路径其实从未触发过；"false" 让 drag.js 显式跳过，避免它与
-        下面的 startWindowDrag 形成双路径。CSS 选择器 [data-tauri-drag-region] 匹配任意值，
-        Windows 的 -webkit-app-region: drag 保持原样。
+        下面的 startWindowDrag 形成双路径。这里同时把 CSS app-region 设为 no-drag，
+        Windows 才能稳定收到 click / dblclick，再由阈值逻辑区分点击和拖动。
       -->
       <div
-        class="relative z-10 flex h-full w-full items-center justify-center overflow-hidden
-          rounded-full border-2 border-white/60 bg-white/10 shadow-[0_8px_32px_rgba(0,176,255,0.15)]
-          backdrop-blur-md transition-colors duration-300 dark:border-white/20 dark:bg-black/10"
+        class="relative z-10 flex h-full w-full cursor-grab items-end justify-center
+          overflow-visible bg-transparent active:cursor-grabbing"
         data-tauri-drag-region="false"
         @mousedown="startWindowDrag"
         @dragstart.prevent
       >
-        <!-- 下降效果的粒子系统 -->
-        <BAParticles
-          v-if="uiStore.currentBackgroundEffect === 'BA'"
-          class="pointer-events-none absolute inset-0 z-0 h-full w-full"
-          :particle-count="60"
-          :speed="0.2"
-        />
-
-        <StarField
-          v-if="uiStore.currentBackgroundEffect === 'StarField'"
-          class="pointer-events-none absolute inset-0 z-0 h-full w-full"
-        />
-
-        <!-- 头像图片容器 -->
+        <!-- 立绘容器 -->
         <div
-          :class="['z-10 h-full w-full overflow-hidden rounded-full', containerClasses]"
+          :class="['z-10 h-full w-full overflow-visible', containerClasses]"
           @animationend="handleAnimationEnd"
         >
-          <div class="h-full w-full origin-top" :style="avatarStyles">
+          <div class="pet-pose h-full w-full origin-bottom" :style="avatarStyles">
             <div
               v-if="live2dFailed && !targetAvatarUrl"
               class="flex h-full w-full items-center justify-center text-xs text-white/60"
@@ -80,11 +56,10 @@
             <ImageCrossFade
               v-show="!live2dActive"
               ref="imageFadeRef"
-              class="animate-breathing h-full w-full object-cover"
+              class="pet-float h-full w-full drop-shadow-[0_12px_10px_rgba(0,0,0,0.28)]"
               :src="targetAvatarUrl"
-              :style="imageStyles"
-              position="center 0%"
-              object-fit="cover"
+              position="center bottom"
+              object-fit="contain"
             />
           </div>
         </div>
@@ -109,19 +84,28 @@
   import { ref, computed, watch, nextTick, toRefs } from "vue";
   import { invoke, convertFileSrc } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import BAParticles from "./BAParticles.vue";
   import ImageCrossFade from "@/components/ui/ImageAcrossFade.vue";
-  import StarField from "../game/standard/particles/StarField.vue";
   import type { GameRole } from "@/stores/modules/game/state";
   import { useGameStore } from "@/stores/modules/game";
   import { EMOTION_CONFIG, EMOTION_CONFIG_EMO } from "@/controllers/emotion/config";
   import { useUIStore } from "@/stores/modules/ui/ui";
   import "./avatar-animation.css";
 
-  const props = defineProps<{ role: GameRole; live2dActive?: boolean; live2dFailed?: boolean }>();
+  const props = defineProps<{
+    role: GameRole;
+    live2dActive?: boolean;
+    live2dFailed?: boolean;
+    actionFile?: string;
+  }>();
   const { role } = toRefs(props);
 
-  const emit = defineEmits(["avatar-click"]);
+  const emit = defineEmits<{
+    "avatar-click": [];
+    "avatar-double-click": [];
+    "drag-start": [];
+    "drag-end": [];
+    "action-unavailable": [file: string];
+  }>();
   const bubbleAudio = ref<HTMLAudioElement | null>(null);
   const imageFadeRef = ref<InstanceType<typeof ImageCrossFade> | null>(null);
   const uiStore = useUIStore();
@@ -132,6 +116,8 @@
   // 这里手动接管：按下后位移超过阈值才进入原生窗口拖曳，未超过则保持为普通点击
   // （头像的 click 仍会派发，"点击头像推进对话"不受影响）。
   const DRAG_THRESHOLD_PX = 4;
+
+  let suppressClickUntil = 0;
 
   const startWindowDrag = (e: MouseEvent) => {
     if (e.button !== 0) return;
@@ -148,7 +134,7 @@
       window.removeEventListener("mouseup", cleanup);
     };
 
-    const onMove = (moveEvent: MouseEvent) => {
+    const onMove = async (moveEvent: MouseEvent) => {
       if (
         Math.abs(moveEvent.screenX - startX) < DRAG_THRESHOLD_PX &&
         Math.abs(moveEvent.screenY - startY) < DRAG_THRESHOLD_PX
@@ -157,7 +143,16 @@
       }
       // 交给系统接管后 webview 收不到后续鼠标事件，先摘监听器再启动拖曳
       cleanup();
-      void getCurrentWindow().startDragging();
+      suppressClickUntil = Date.now() + 300;
+      emit("drag-start");
+      try {
+        await getCurrentWindow().startDragging();
+      } finally {
+        suppressClickUntil = Date.now() + 300;
+        // 部分平台的原生拖动命令会立即 resolve，至少保留一小段慌张动作，
+        // 否则用户只能看到一帧切换。
+        window.setTimeout(() => emit("drag-end"), 900);
+      }
     };
 
     window.addEventListener("mousemove", onMove);
@@ -182,10 +177,6 @@
     transform: `scale(${role.value.scaleP}) translate(${role.value.offsetXP}px, ${role.value.offsetYP}px)`,
   }));
 
-  const imageStyles = computed(() => ({
-    top: `-10px`,
-  }));
-
   const bubbleClasses = computed(() => ({
     "opacity-100": isBubbleVisible.value,
     "opacity-0": !isBubbleVisible.value,
@@ -196,7 +187,15 @@
     backgroundImage: `url(${currentBubbleImageUrl.value})`,
   }));
 
-  const handleAvatarClick = () => emit("avatar-click");
+  const handleAvatarClick = () => {
+    if (Date.now() < suppressClickUntil) return;
+    emit("avatar-click");
+  };
+
+  const handleAvatarDoubleClick = () => {
+    if (Date.now() < suppressClickUntil) return;
+    emit("avatar-double-click");
+  };
 
   const handleAnimationEnd = () => {
     if (activeAnimationClass.value !== "normal") {
@@ -214,6 +213,23 @@
     const mappedEmotion = EMOTION_CONFIG_EMO[emotion] || "正常";
 
     const currentId = ++resolveAvatarId;
+
+    if (props.actionFile) {
+      try {
+        const path = await invoke<string>("get_pet_action_file", {
+          characterFolder: r.character_folder,
+          actionFile: props.actionFile,
+        });
+        if (currentId === resolveAvatarId) {
+          targetAvatarUrl.value = convertFileSrc(path);
+        }
+        return;
+      } catch {
+        // 旧角色包没有 extra_actions 时静默回退到当前对话情绪。
+        emit("action-unavailable", props.actionFile);
+      }
+    }
+
     try {
       const path = await invoke<string>("get_avatar_file", {
         characterFolder: r.character_folder,
@@ -236,6 +252,7 @@
       role.value.emotion,
       role.value.clothesName,
       role.value.character_folder,
+      props.actionFile,
     ],
     () => resolveAvatar(),
     { immediate: true }
@@ -342,6 +359,21 @@
     animation: breathing 4s ease-in-out infinite alternate;
   }
 
+  .pet-float {
+    animation: pet-idle-float 4.8s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  @keyframes pet-idle-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-3px);
+    }
+  }
+
   .animate-pulse-slow {
     animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
@@ -377,7 +409,7 @@
     animation: spin 4s linear infinite;
   }
 
-  [data-tauri-drag-region] {
-    -webkit-app-region: drag;
+  [data-tauri-drag-region="false"] {
+    -webkit-app-region: no-drag;
   }
 </style>
