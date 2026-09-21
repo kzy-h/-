@@ -48,12 +48,20 @@ const downloadProgress = ref(0); // 0-100
 const resourceSyncInfo = ref<ResourceSyncInfo | null>(null);
 const resourceSyncPhase = ref<"idle" | "review" | "syncing" | "complete" | "error">("idle");
 const resourceSyncError = ref("");
+const appUpdatesDisabled = import.meta.env.MODE === "mita";
 
 // ─── 导出 composable ─────────────────────────────────────────
 
 export function useUpdater() {
   /** 检查 app 更新，返回是否有可用更新 */
   async function checkForUpdates(): Promise<boolean> {
+    // 增强版使用独立应用标识，不能安装 LingChat 官方包覆盖本地增强功能。
+    if (appUpdatesDisabled) {
+      phase.value = "idle";
+      errorMessage.value = "";
+      return false;
+    }
+
     phase.value = "checking";
     errorMessage.value = "";
 
@@ -84,6 +92,12 @@ export function useUpdater() {
 
   /** 安装 app 更新并重启（带进度追踪） */
   async function installAppUpdate(): Promise<void> {
+    if (appUpdatesDisabled) {
+      phase.value = "error";
+      errorMessage.value = "增强版已关闭官方应用覆盖更新";
+      return;
+    }
+
     try {
       const update = await check();
       if (!update?.available) {

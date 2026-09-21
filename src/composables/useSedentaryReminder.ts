@@ -36,6 +36,10 @@ function playReminderSound(): void {
 
 /** 发送久坐提醒系统通知 */
 async function showReminderNotification(): Promise<void> {
+  // 桌宠模式会监听这个事件并切换为“递咖啡提醒休息”动作；即使系统通知权限
+  // 未授予，应用内的角色反馈也仍然可见。
+  window.dispatchEvent(new CustomEvent("lingchat:sedentary-reminder"));
+
   try {
     let granted = await isPermissionGranted();
     if (!granted) {
