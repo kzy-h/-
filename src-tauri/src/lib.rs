@@ -820,6 +820,7 @@ pub fn run() {
             api::script_editor::agent::editor_agent_rewind,
             api::script_editor::agent::editor_agent_resolve_approval,
             api::pet::update_solid_regions,
+            api::pet::primary_mouse_button_down,
             api::pet::set_pet_mode,
             api::schedule::get_schedules,
             api::schedule::save_schedules,
