@@ -8,30 +8,6 @@
     "beforeBuildCommand": "node scripts/prepare-desktop-resources.mjs && pnpm build --mode mita"
   },
   "app": {
-{
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SleepyMita LingChat Enhanced",
-  "version": "0.5.6",
-  "identifier": "com.kzyh.sleepymita.lingchat",
-  "build": {
-    "beforeDevCommand": "pnpm dev --mode mita",
-    "beforeBuildCommand": "node scripts/prepare-desktop-resources.mjs && pnpm build --mode mita"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "瞌睡米塔 · LingChat 增强版",
-        "width": 1500,
-        "height": 800,
-        "transparent": true,
-        "shadow": false
-      }
-    ]
-  },
-  "bundle": {
-    "createUpdaterArtifacts": false
-  }
-}
     "windows": [
       {
         "title": "瞌睡米塔 · LingChat 增强版",
