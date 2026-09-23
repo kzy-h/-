@@ -28,6 +28,8 @@ export default {
     behaviorDesc: "控制瞌睡米塔的动作触发方式，修改后立即生效",
     clickInteraction: "点击互动",
     clickInteractionDesc: "点击脸、头发和身体时触发不同反应",
+    interactionVoice: "互动语音",
+    interactionVoiceDesc: "使用米塔当前的本地 Ling-v2 日语音色朗读互动台词",
     idleActions: "随机待机动作",
     idleActionsDesc: "空闲时随机打哈欠、偷看或休息",
     musicActions: "音乐动作",
