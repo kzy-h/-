@@ -261,6 +261,14 @@
   let interactionVoiceActive = false;
   let interactionVoiceUrl = "";
   let interactionVoiceRetryAfter = 0;
+  let interactionVoiceReleaseTimer: number | null = null;
+  let interactionVoiceWatchdogTimer: number | null = null;
+  let interactionVoicePresentation: {
+    actionId: PetActionId;
+    actionRunId: number;
+    lineText: string;
+    requestId: number;
+  } | null = null;
   const interactionVoiceMemoryCache = new Map<string, ArrayBuffer>();
   const interactionVoiceRequests = new Map<string, Promise<ArrayBuffer>>();
 
@@ -331,7 +339,49 @@
     interactionVoiceUrl = "";
   };
 
-  const stopInteractionVoice = () => {
+  const clearInteractionTextTimer = () => {
+    if (interactionTextTimer !== null) {
+      window.clearTimeout(interactionTextTimer);
+      interactionTextTimer = null;
+    }
+  };
+
+  const scheduleInteractionTextClear = (delayMs: number) => {
+    clearInteractionTextTimer();
+    interactionTextTimer = window.setTimeout(clearInteractionText, delayMs);
+  };
+
+  const clearInteractionVoiceTimers = () => {
+    if (interactionVoiceReleaseTimer !== null) {
+      window.clearTimeout(interactionVoiceReleaseTimer);
+      interactionVoiceReleaseTimer = null;
+    }
+    if (interactionVoiceWatchdogTimer !== null) {
+      window.clearTimeout(interactionVoiceWatchdogTimer);
+      interactionVoiceWatchdogTimer = null;
+    }
+  };
+
+  const releaseInteractionPresentation = (mode: "finish" | "resume") => {
+    const presentation = interactionVoicePresentation;
+    interactionVoicePresentation = null;
+    clearInteractionVoiceTimers();
+    if (!presentation) return;
+
+    if (mode === "finish") {
+      petActions.finishActionRun(presentation.actionId, presentation.actionRunId);
+      if (interactionText.value === presentation.lineText) clearInteractionText();
+      return;
+    }
+
+    const remainingMs = Math.max(0, petActions.actionEndsAt.value - Date.now());
+    petActions.resumeHeldAction(presentation.actionId, presentation.actionRunId);
+    if (interactionText.value === presentation.lineText) {
+      scheduleInteractionTextClear(Math.max(300, remainingMs));
+    }
+  };
+
+  const stopInteractionVoice = (presentationMode: "finish" | "resume" = "resume") => {
     interactionVoiceRequest += 1;
     const wasActive = interactionVoiceActive;
     interactionVoiceActive = false;
@@ -342,6 +392,7 @@
       interactionAudio.value.load();
     }
     releaseInteractionVoiceUrl();
+    releaseInteractionPresentation(presentationMode);
 
     // 正式 AI 语音可能已经接管全局 ASR 锁，此时不能把它误解锁。
     if (wasActive && !characterSpeaking.value) setVoicePlaying(false);
@@ -354,6 +405,15 @@
     interactionAudio.value?.load();
     releaseInteractionVoiceUrl();
     if (!characterSpeaking.value) setVoicePlaying(false);
+
+    if (interactionVoiceWatchdogTimer !== null) {
+      window.clearTimeout(interactionVoiceWatchdogTimer);
+      interactionVoiceWatchdogTimer = null;
+    }
+    interactionVoiceReleaseTimer = window.setTimeout(() => {
+      interactionVoiceReleaseTimer = null;
+      releaseInteractionPresentation("finish");
+    }, 200);
   };
 
   const handleInteractionVoiceError = () => {
@@ -363,7 +423,11 @@
     console.warn("桌宠互动语音播放失败，已保留动作与字幕");
   };
 
-  const playInteractionVoice = async (line: PetInteractionLine) => {
+  const playInteractionVoice = async (
+    line: PetInteractionLine,
+    actionId: PetActionId,
+    actionRunId: number
+  ) => {
     stopInteractionVoice();
     if (
       !interactionVoiceEnabled.value ||
@@ -375,6 +439,15 @@
     }
 
     const requestId = interactionVoiceRequest;
+    if (!petActions.holdAction(actionId, actionRunId)) return;
+    clearInteractionTextTimer();
+    interactionVoicePresentation = { actionId, actionRunId, lineText: line.text, requestId };
+    interactionVoiceWatchdogTimer = window.setTimeout(() => {
+      if (interactionVoicePresentation?.requestId !== requestId) return;
+      console.warn("桌宠互动语音等待超时，已恢复默认动作时长");
+      stopInteractionVoice("resume");
+    }, 30_000);
+
     try {
       const audio = await getInteractionVoiceAudio(line.voiceText);
       if (
@@ -385,6 +458,7 @@
         interactionText.value !== line.text ||
         !interactionAudio.value
       ) {
+        if (requestId === interactionVoiceRequest) releaseInteractionPresentation("resume");
         return;
       }
 
@@ -404,10 +478,7 @@
   };
 
   const clearInteractionText = () => {
-    if (interactionTextTimer !== null) {
-      window.clearTimeout(interactionTextTimer);
-      interactionTextTimer = null;
-    }
+    clearInteractionTextTimer();
     interactionText.value = "";
   };
 
@@ -419,10 +490,10 @@
     clearInteractionText();
     previousInteractionLine = line.text;
     interactionText.value = line.text;
-    void playInteractionVoice(line);
     const actionDuration = PET_ACTIONS[actionId].durationMs || 2800;
     const displayDuration = Math.max(2200, Math.min(actionDuration, 4200));
-    interactionTextTimer = window.setTimeout(clearInteractionText, displayDuration);
+    scheduleInteractionTextClear(displayDuration);
+    void playInteractionVoice(line, actionId, petActions.actionRunId.value);
   };
 
   const playInteractiveAction = (actionId: PetActionId, force = false): boolean => {
@@ -713,7 +784,7 @@
   watch(isDialogueActive, (active) => {
     if (active) {
       clearInteractionText();
-      stopInteractionVoice();
+      stopInteractionVoice("finish");
     }
   });
 
@@ -753,7 +824,7 @@
     if (actionAuditUnlisten) actionAuditUnlisten();
     clearMusicActionTimer();
     clearInteractionText();
-    stopInteractionVoice();
+    stopInteractionVoice("finish");
 
     if (hitTestInterval !== undefined) {
       window.clearInterval(hitTestInterval);
@@ -979,7 +1050,7 @@
   const handleAudioStarted = () => {
     audioFinished.value = false;
     characterSpeaking.value = true;
-    stopInteractionVoice();
+    stopInteractionVoice("finish");
 
     // 正式说话时让对话情绪立绘接管。即使此刻仍在拖动，也保持该立绘到松手。
     if (petActions.currentActionId.value !== null) {
