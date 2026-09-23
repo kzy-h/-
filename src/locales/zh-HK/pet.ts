@@ -29,6 +29,8 @@ export default {
     behaviorDesc: "控制瞌睡米塔嘅動作觸發方式，修改後即時生效",
     clickInteraction: "點擊互動",
     clickInteractionDesc: "點擊塊面、頭髮同身體時觸發唔同反應",
+    interactionVoice: "互動語音",
+    interactionVoiceDesc: "使用米塔目前嘅本地 Ling-v2 日語音色讀出互動台詞",
     idleActions: "隨機待機動作",
     idleActionsDesc: "得閒時隨機打喊露、偷望或者休息",
     musicActions: "音樂動作",
