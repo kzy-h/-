@@ -29,6 +29,8 @@ export default {
     behaviorDesc: "Control how Sleepy Mita reacts. Changes apply immediately.",
     clickInteraction: "Click Reactions",
     clickInteractionDesc: "Different reactions for the face, hair, and body",
+    interactionVoice: "Interaction Voice",
+    interactionVoiceDesc: "Read interaction lines with Mita's local Ling-v2 Japanese voice",
     idleActions: "Random Idle Actions",
     idleActionsDesc: "Yawn, peek, or rest while idle",
     musicActions: "Music Actions",
