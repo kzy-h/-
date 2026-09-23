@@ -13,6 +13,25 @@
       :style="{ height: 'var(--dialog-h)' }"
     >
       <PetNotification />
+      <Transition name="pet-interaction-bubble">
+        <div
+          v-if="interactionText && !isDialogueActive"
+          aria-live="polite"
+          class="pointer-events-none mx-auto mb-1 w-[85%] rounded-[calc(20px*var(--pet-ui-scale,1))]
+            border border-fuchsia-200/15 bg-neutral-950/60 px-[calc(18px*var(--pet-ui-scale,1))]
+            py-[calc(8px*var(--pet-ui-scale,1))] text-[calc(15px*var(--pet-ui-scale,1))]
+            leading-snug font-medium text-white shadow-lg backdrop-blur-xl backdrop-saturate-200
+            [text-shadow:0_0_3px_rgba(0,0,0,0.9),0_1px_4px_rgba(0,0,0,0.5)]"
+        >
+          <div
+            class="mb-0.5 text-[calc(12px*var(--pet-ui-scale,1))] font-semibold tracking-wider
+              text-fuchsia-300 italic"
+          >
+            瞌睡米塔
+          </div>
+          {{ interactionText }}
+        </div>
+      </Transition>
       <div class="mt-1 flex items-end justify-center">
         <DialogueBox
           ref="gameDialogRef"
@@ -74,10 +93,19 @@
     >
       <ChatInput ref="ChatInputRef" :visible="showChatInput" @message-sent="handleMessageSent" />
     </div>
+
+    <audio
+      ref="interactionAudio"
+      class="hidden"
+      @ended="handleInteractionVoiceEnded"
+      @error="handleInteractionVoiceError"
+    ></audio>
   </div>
 </template>
 
 <script setup lang="ts">
+  import * as TtsLocal from "@/api/services/tts/tts-local";
+  import { setVoicePlaying } from "@/composables/useAsrInput";
   import { useGameStore } from "@/stores/modules/game";
   import { useSettingsStore } from "@/stores/modules/settings";
   import { useUIStore } from "@/stores/modules/ui/ui";
@@ -90,6 +118,10 @@
   import { useFileDrop } from "../pet/useFileDrop";
   import { usePetActions } from "@/composables/usePetActions";
   import {
+    readCachedInteractionVoice,
+    writeCachedInteractionVoice,
+  } from "@/components/pet/pet-interaction-voice";
+  import {
     CLICK_REACTIONS_BY_ZONE,
     DOUBLE_CLICK_REACTIONS,
     HAIR_CLICK_PROGRESSION,
@@ -99,6 +131,7 @@
     PET_ACTION_IDS,
     PET_ACTION_PREVIEW_EVENT,
     PET_ACTIONS,
+    pickPetActionLine,
     RAPID_CLICK_REACTIONS_BY_ZONE,
     REPEATED_CLICK_REACTIONS_BY_ZONE,
     SLEEPY_MITA_BUNDLED_FOLDER,
@@ -106,8 +139,10 @@
     type PetActionAuditRequest,
     type PetActionAuditResult,
     type PetActionFrequency,
+    type PetActionId,
     type PetHitZone,
     type PetActionPreviewPayload,
+    type PetInteractionLine,
   } from "@/components/pet/pet-actions";
 
   import ChatInput from "../pet/ChatInput.vue";
@@ -135,10 +170,18 @@
   const chatContainer = ref<HTMLElement | null>(null);
   const gameDialogRef = ref<InstanceType<typeof DialogueBox> | null>(null);
   const ChatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
+  const interactionAudio = ref<HTMLAudioElement | null>(null);
   const audioFinished = ref(true);
   const characterSpeaking = ref(false);
+  const interactionText = ref("");
+  const isDialogueActive = computed(
+    () => gameStore.currentStatus === "responding" && gameStore.currentLine.trim() !== ""
+  );
   const clickInteractionsEnabled = computed(
     () => settingsStore.pet?.clickInteractionEnabled !== false
+  );
+  const interactionVoiceEnabled = computed(
+    () => settingsStore.pet?.interactionVoiceEnabled !== false
   );
   const idleActionsEnabled = computed(() => settingsStore.pet?.idleActionsEnabled !== false);
   const musicActionsEnabled = computed(() => settingsStore.pet?.musicActionsEnabled !== false);
@@ -212,6 +255,188 @@
   let actionPreviewUnlisten: (() => void) | null = null;
   let actionAuditUnlisten: (() => void) | null = null;
   let musicActionTimer: number | null = null;
+  let interactionTextTimer: number | null = null;
+  let previousInteractionLine = "";
+  let interactionVoiceRequest = 0;
+  let interactionVoiceActive = false;
+  let interactionVoiceUrl = "";
+  let interactionVoiceRetryAfter = 0;
+  const interactionVoiceMemoryCache = new Map<string, ArrayBuffer>();
+  const interactionVoiceRequests = new Map<string, Promise<ArrayBuffer>>();
+
+  const INTERACTION_VOICE_ID = "ling-v2";
+  const INTERACTION_VOICE_LENGTH_SCALE = 1.1;
+  const INTERACTION_VOICE_SDP_RATIO = 0.2;
+
+  const toAudioBuffer = (bytes: Uint8Array | ArrayBuffer | number[]): ArrayBuffer => {
+    if (bytes instanceof ArrayBuffer) return bytes;
+    if (ArrayBuffer.isView(bytes)) {
+      return bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength
+      ) as ArrayBuffer;
+    }
+    return new Uint8Array(bytes).buffer;
+  };
+
+  const getInteractionVoiceCacheKey = (voiceText: string) =>
+    [
+      "v1",
+      INTERACTION_VOICE_ID,
+      "speaker-0",
+      "style-0",
+      INTERACTION_VOICE_LENGTH_SCALE,
+      INTERACTION_VOICE_SDP_RATIO,
+      voiceText,
+    ].join(":");
+
+  const getInteractionVoiceAudio = async (voiceText: string): Promise<ArrayBuffer> => {
+    const key = getInteractionVoiceCacheKey(voiceText);
+    const memoryCached = interactionVoiceMemoryCache.get(key);
+    if (memoryCached) return memoryCached;
+
+    const pending = interactionVoiceRequests.get(key);
+    if (pending) return pending;
+
+    const request = (async () => {
+      const persisted = await readCachedInteractionVoice(key);
+      if (persisted) {
+        interactionVoiceMemoryCache.set(key, persisted);
+        return persisted;
+      }
+
+      const bytes = await TtsLocal.synthesizePreview({
+        text: voiceText,
+        voiceId: INTERACTION_VOICE_ID,
+        lengthScale: INTERACTION_VOICE_LENGTH_SCALE,
+        sdpRatio: INTERACTION_VOICE_SDP_RATIO,
+      });
+      const audio = toAudioBuffer(bytes as Uint8Array | ArrayBuffer | number[]);
+      interactionVoiceMemoryCache.set(key, audio);
+      void writeCachedInteractionVoice(key, audio);
+      return audio;
+    })();
+
+    interactionVoiceRequests.set(key, request);
+    try {
+      return await request;
+    } finally {
+      interactionVoiceRequests.delete(key);
+    }
+  };
+
+  const releaseInteractionVoiceUrl = () => {
+    if (!interactionVoiceUrl) return;
+    URL.revokeObjectURL(interactionVoiceUrl);
+    interactionVoiceUrl = "";
+  };
+
+  const stopInteractionVoice = () => {
+    interactionVoiceRequest += 1;
+    const wasActive = interactionVoiceActive;
+    interactionVoiceActive = false;
+
+    if (interactionAudio.value) {
+      interactionAudio.value.pause();
+      interactionAudio.value.removeAttribute("src");
+      interactionAudio.value.load();
+    }
+    releaseInteractionVoiceUrl();
+
+    // 正式 AI 语音可能已经接管全局 ASR 锁，此时不能把它误解锁。
+    if (wasActive && !characterSpeaking.value) setVoicePlaying(false);
+  };
+
+  const handleInteractionVoiceEnded = () => {
+    if (!interactionVoiceActive) return;
+    interactionVoiceActive = false;
+    interactionAudio.value?.removeAttribute("src");
+    interactionAudio.value?.load();
+    releaseInteractionVoiceUrl();
+    if (!characterSpeaking.value) setVoicePlaying(false);
+  };
+
+  const handleInteractionVoiceError = () => {
+    if (!interactionVoiceActive) return;
+    interactionVoiceRetryAfter = Date.now() + 30_000;
+    stopInteractionVoice();
+    console.warn("桌宠互动语音播放失败，已保留动作与字幕");
+  };
+
+  const playInteractionVoice = async (line: PetInteractionLine) => {
+    stopInteractionVoice();
+    if (
+      !interactionVoiceEnabled.value ||
+      isDialogueActive.value ||
+      characterSpeaking.value ||
+      Date.now() < interactionVoiceRetryAfter
+    ) {
+      return;
+    }
+
+    const requestId = interactionVoiceRequest;
+    try {
+      const audio = await getInteractionVoiceAudio(line.voiceText);
+      if (
+        requestId !== interactionVoiceRequest ||
+        !interactionVoiceEnabled.value ||
+        isDialogueActive.value ||
+        characterSpeaking.value ||
+        interactionText.value !== line.text ||
+        !interactionAudio.value
+      ) {
+        return;
+      }
+
+      interactionVoiceUrl = URL.createObjectURL(new Blob([audio], { type: "audio/wav" }));
+      interactionAudio.value.src = interactionVoiceUrl;
+      interactionAudio.value.volume = uiStore.characterVolume / 100;
+      interactionAudio.value.load();
+      interactionVoiceActive = true;
+      setVoicePlaying(true);
+      await interactionAudio.value.play();
+    } catch (error) {
+      if (requestId !== interactionVoiceRequest) return;
+      interactionVoiceRetryAfter = Date.now() + 30_000;
+      stopInteractionVoice();
+      console.warn("桌宠互动语音暂时不可用，已保留动作与字幕:", error);
+    }
+  };
+
+  const clearInteractionText = () => {
+    if (interactionTextTimer !== null) {
+      window.clearTimeout(interactionTextTimer);
+      interactionTextTimer = null;
+    }
+    interactionText.value = "";
+  };
+
+  const showInteractionLine = (actionId: PetActionId) => {
+    if (isDialogueActive.value || characterSpeaking.value) return;
+    const line = pickPetActionLine(actionId, previousInteractionLine);
+    if (!line) return;
+
+    clearInteractionText();
+    previousInteractionLine = line.text;
+    interactionText.value = line.text;
+    void playInteractionVoice(line);
+    const actionDuration = PET_ACTIONS[actionId].durationMs || 2800;
+    const displayDuration = Math.max(2200, Math.min(actionDuration, 4200));
+    interactionTextTimer = window.setTimeout(clearInteractionText, displayDuration);
+  };
+
+  const playInteractiveAction = (actionId: PetActionId, force = false): boolean => {
+    const played = petActions.playAction(actionId, force);
+    if (played) showInteractionLine(actionId);
+    return played;
+  };
+
+  const playRandomInteractiveAction = (candidates: PetActionId[], force = false): boolean => {
+    const played = petActions.playRandomAction(candidates, force);
+    const actionId = petActions.currentActionId.value;
+    if (played && actionId) showInteractionLine(actionId);
+    return played;
+  };
 
   const isBackgroundMusicPlaying = computed(
     () =>
@@ -304,7 +529,7 @@
           petActions.reportBlockedAction("speaking-pose-priority", actionId);
           return;
         }
-        petActions.playAction(actionId, true);
+        playInteractiveAction(actionId, true);
       }
     );
 
@@ -484,6 +709,25 @@
     }
   );
 
+  // 正式 AI 对话永远优先于本地互动台词，避免两个气泡相互遮挡。
+  watch(isDialogueActive, (active) => {
+    if (active) {
+      clearInteractionText();
+      stopInteractionVoice();
+    }
+  });
+
+  watch(interactionVoiceEnabled, (enabled) => {
+    if (!enabled) stopInteractionVoice();
+  });
+
+  watch(
+    () => uiStore.characterVolume,
+    (volume) => {
+      if (interactionAudio.value) interactionAudio.value.volume = volume / 100;
+    }
+  );
+
   // 监听 dialogHistory 变化，推送给设置窗口
   watch(
     () => gameStore.dialogHistory.length,
@@ -508,6 +752,8 @@
     if (actionPreviewUnlisten) actionPreviewUnlisten();
     if (actionAuditUnlisten) actionAuditUnlisten();
     clearMusicActionTimer();
+    clearInteractionText();
+    stopInteractionVoice();
 
     if (hitTestInterval !== undefined) {
       window.clearInterval(hitTestInterval);
@@ -598,7 +844,7 @@
             consecutiveHairClickCount - 1,
             HAIR_CLICK_PROGRESSION.length - 1
           );
-          petActions.playAction(HAIR_CLICK_PROGRESSION[progressionIndex], true);
+          playInteractiveAction(HAIR_CLICK_PROGRESSION[progressionIndex], true);
         } else {
           consecutiveHairClickCount = 0;
           lastHairClickAt = 0;
@@ -608,7 +854,7 @@
               : consecutiveClickCount === 2
                 ? REPEATED_CLICK_REACTIONS_BY_ZONE[zone]
                 : CLICK_REACTIONS_BY_ZONE[zone];
-          petActions.playRandomAction(candidates, consecutiveClickCount >= 2);
+          playRandomInteractiveAction(candidates, consecutiveClickCount >= 2);
         }
       }
     }, 260);
@@ -624,7 +870,7 @@
     if (clickInteractionsEnabled.value && characterSpeaking.value) {
       petActions.reportBlockedAction("speaking-pose-priority");
     } else if (clickInteractionsEnabled.value) {
-      petActions.playRandomAction(DOUBLE_CLICK_REACTIONS, true);
+      playRandomInteractiveAction(DOUBLE_CLICK_REACTIONS, true);
     }
   };
 
@@ -641,7 +887,7 @@
       return;
     }
 
-    dragVisualActionActive = petActions.playAction("dragPanic", true);
+    dragVisualActionActive = playInteractiveAction("dragPanic", true);
   };
 
   const handleAvatarDragEnd = () => {
@@ -733,6 +979,7 @@
   const handleAudioStarted = () => {
     audioFinished.value = false;
     characterSpeaking.value = true;
+    stopInteractionVoice();
 
     // 正式说话时让对话情绪立绘接管。即使此刻仍在拖动，也保持该立绘到松手。
     if (petActions.currentActionId.value !== null) {
@@ -796,5 +1043,18 @@
     width: 100vw;
     height: 100dvh;
     overflow: hidden;
+  }
+
+  .pet-interaction-bubble-enter-active,
+  .pet-interaction-bubble-leave-active {
+    transition:
+      opacity 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .pet-interaction-bubble-enter-from,
+  .pet-interaction-bubble-leave-to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
   }
 </style>
