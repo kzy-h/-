@@ -51,6 +51,13 @@ export interface PetAction {
   motion: PetMotionPreset;
 }
 
+export interface PetInteractionLine {
+  /** 显示在桌宠气泡中的中文字幕。 */
+  text: string;
+  /** 交给本地 Ling-v2 合成的日语台词。 */
+  voiceText: string;
+}
+
 export interface PetActionPreviewPayload {
   actionId: PetActionId;
 }
@@ -307,6 +314,117 @@ export const PET_ACTIONS: Record<PetActionId, PetAction> = {
 };
 
 export const PET_ACTION_IDS = Object.keys(PET_ACTIONS) as PetActionId[];
+
+/**
+ * 点击互动使用的本地台词。它们不进入 AI 对话队列，也不会产生 API 请求；
+ * 没有配置台词的空闲、状态动作会保持安静。
+ */
+export const PET_ACTION_LINES: Partial<Record<PetActionId, readonly PetInteractionLine[]>> = {
+  knock: [
+    { text: "喂，看这里。别让我敲第二次。", voiceText: "ねえ、こっち見て。二回も叩かせないでよ。" },
+    {
+      text: "只是确认你还没在屏幕前睡着，别想多了。",
+      voiceText: "まだ寝てないか確認しただけ。勘違いしないで。",
+    },
+  ],
+  clickProtest: [
+    {
+      text: "戳够了吗？再戳我要收费了。",
+      voiceText: "もう満足？これ以上つつくなら料金を取るから。",
+    },
+    {
+      text: "我不是桌面快捷方式，别一直点！",
+      voiceText: "私はデスクトップのショートカットじゃないの。何度も押さないで！",
+    },
+    {
+      text: "你手指很闲吗？要不要我给你安排点工作？",
+      voiceText: "指が暇なの？仕事を用意してあげようか？",
+    },
+  ],
+  sideEye: [
+    {
+      text: "手放规矩点……我可都看见了。",
+      voiceText: "手はおとなしくして……ちゃんと見えてるんだから。",
+    },
+    {
+      text: "又来？你对我的眼罩到底有什么意见？",
+      voiceText: "また？私のアイマスクに何か文句でもあるの？",
+    },
+    {
+      text: "哼，这次先记账，下次一起算。",
+      voiceText: "ふん、今回は貸しにしておく。次にまとめて返してもらうから。",
+    },
+  ],
+  handsOnHips: [
+    { text: "你是不是把我当成按钮了？", voiceText: "私をボタンだと思ってるの？" },
+    {
+      text: "胆子不小嘛，居然敢随便戳我。",
+      voiceText: "いい度胸ね。よくも勝手につついたわね。",
+    },
+    {
+      text: "给你三秒钟解释。算了，你肯定编不出来。",
+      voiceText: "三秒だけ言い訳を聞いてあげる。まあ、どうせ思いつかないでしょうけど。",
+    },
+  ],
+  shyTurn: [
+    { text: "离、离这么近干什么……", voiceText: "ち、近すぎるんだけど……" },
+    {
+      text: "我才没有脸红，是屏幕颜色的问题！",
+      voiceText: "赤くなんてない！画面の色のせいだから！",
+    },
+    { text: "别盯着看……很没礼貌的。", voiceText: "じっと見ないで……失礼でしょ。" },
+  ],
+  happyWave: [
+    { text: "哼，我只是顺手打个招呼。", voiceText: "ふん、ついでに挨拶しただけ。" },
+    { text: "看见你了，不用再点啦。", voiceText: "ちゃんと見えてるから、もう押さなくていいよ。" },
+    {
+      text: "今天也勉强陪你一会儿吧。",
+      voiceText: "今日も仕方ないから、少しだけ付き合ってあげる。",
+    },
+  ],
+  hairTouchGentle: [
+    {
+      text: "轻一点……发型乱了你负责。",
+      voiceText: "優しくして……髪が乱れたら、あなたのせいだからね。",
+    },
+    { text: "只、只准摸一下，听见没有？", voiceText: "い、一回だけだからね。わかった？" },
+    { text: "手感怎么样？不许回答！", voiceText: "触り心地はどう？……答えなくていい！" },
+  ],
+  hairTouchAnnoyed: [
+    { text: "都说了会乱！你是故意的吧？", voiceText: "乱れるって言ったでしょ！わざとやってるの？" },
+    {
+      text: "再揉我头发，我就把你桌面图标全藏起来。",
+      voiceText: "また髪をぐしゃぐしゃにしたら、デスクトップのアイコンを全部隠すから。",
+    },
+    {
+      text: "停手！眼罩都快被你碰歪了！",
+      voiceText: "やめて！アイマスクまでずれちゃうでしょ！",
+    },
+  ],
+  dragPanic: [
+    {
+      text: "等等！移动之前先打个招呼啊！",
+      voiceText: "ちょっと！動かすなら先に声をかけてよ！",
+    },
+    {
+      text: "慢一点，我可不是窗口快递！",
+      voiceText: "ゆっくりして。私はウィンドウ便じゃないんだから！",
+    },
+  ],
+};
+
+export function pickPetActionLine(
+  actionId: PetActionId,
+  previous: string,
+  random = Math.random
+): PetInteractionLine | null {
+  const candidates = PET_ACTION_LINES[actionId] ?? [];
+  if (candidates.length === 0) return null;
+  const pool =
+    candidates.length > 1 ? candidates.filter((line) => line.text !== previous) : candidates;
+  const index = Math.min(pool.length - 1, Math.floor(random() * pool.length));
+  return pool[Math.max(0, index)] ?? candidates[0] ?? null;
+}
 
 export function isPetActionId(value: unknown): value is PetActionId {
   return typeof value === "string" && value in PET_ACTIONS;
