@@ -78,7 +78,6 @@
 </template>
 
 <script setup lang="ts">
-  import { eventQueue } from "@/core/events/event-queue";
   import { useGameStore } from "@/stores/modules/game";
   import { useSettingsStore } from "@/stores/modules/settings";
   import { useUIStore } from "@/stores/modules/ui/ui";
@@ -94,10 +93,21 @@
     CLICK_REACTIONS_BY_ZONE,
     DOUBLE_CLICK_REACTIONS,
     HAIR_CLICK_PROGRESSION,
-    RAPID_CLICK_REACTIONS,
-    REPEATED_CLICK_REACTIONS,
+    isPetActionId,
+    PET_ACTION_AUDIT_REQUEST_EVENT,
+    PET_ACTION_AUDIT_RESULT_EVENT,
+    PET_ACTION_IDS,
+    PET_ACTION_PREVIEW_EVENT,
+    PET_ACTIONS,
+    RAPID_CLICK_REACTIONS_BY_ZONE,
+    REPEATED_CLICK_REACTIONS_BY_ZONE,
+    SLEEPY_MITA_BUNDLED_FOLDER,
+    type PetActionAssetCheck,
+    type PetActionAuditRequest,
+    type PetActionAuditResult,
     type PetActionFrequency,
     type PetHitZone,
+    type PetActionPreviewPayload,
   } from "@/components/pet/pet-actions";
 
   import ChatInput from "../pet/ChatInput.vue";
@@ -199,6 +209,8 @@
   let volumeUnlisten: (() => void) | null = null;
   let dialogHistoryUnlisten: (() => void) | null = null;
   let behaviorSettingsUnlisten: (() => void) | null = null;
+  let actionPreviewUnlisten: (() => void) | null = null;
+  let actionAuditUnlisten: (() => void) | null = null;
   let musicActionTimer: number | null = null;
 
   const isBackgroundMusicPlaying = computed(
@@ -279,6 +291,91 @@
       (event) => {
         settingsStore.pet = { ...settingsStore.pet, ...event.payload };
         petActions.refreshIdleSchedule();
+      }
+    );
+
+    actionPreviewUnlisten = await appWindow.listen<PetActionPreviewPayload>(
+      PET_ACTION_PREVIEW_EVENT,
+      (event) => {
+        const actionId = event.payload?.actionId;
+        if (!isPetActionId(actionId)) return;
+        petActions.noteInteraction();
+        if (characterSpeaking.value) {
+          petActions.reportBlockedAction("speaking-pose-priority", actionId);
+          return;
+        }
+        petActions.playAction(actionId, true);
+      }
+    );
+
+    actionAuditUnlisten = await appWindow.listen<PetActionAuditRequest>(
+      PET_ACTION_AUDIT_REQUEST_EVENT,
+      async (event) => {
+        const requestId = event.payload?.requestId;
+        if (!requestId) return;
+        const role = gameStore.presentRolesList[0];
+        if (!role) {
+          const result: PetActionAuditResult = {
+            requestId,
+            characterName: "",
+            characterFolder: "",
+            baseAvatarAvailable: false,
+            checks: [],
+            error: "no-active-role",
+          };
+          await appWindow.emit(PET_ACTION_AUDIT_RESULT_EVENT, result);
+          return;
+        }
+
+        let baseAvatarAvailable = false;
+        try {
+          await invoke<string>("get_avatar_file", {
+            characterFolder: role.character_folder,
+            emotion: "正常",
+            clothesName: "default",
+          });
+          baseAvatarAvailable = true;
+        } catch {
+          baseAvatarAvailable = false;
+        }
+
+        const checks = await Promise.all(
+          PET_ACTION_IDS.map(async (actionId): Promise<PetActionAssetCheck> => {
+            const file = PET_ACTIONS[actionId].file;
+            try {
+              const path = await invoke<string>("get_pet_action_file", {
+                characterFolder: role.character_folder,
+                actionFile: file,
+              });
+              const usedFallback =
+                role.character_folder !== SLEEPY_MITA_BUNDLED_FOLDER &&
+                path.includes(SLEEPY_MITA_BUNDLED_FOLDER);
+              return {
+                actionId,
+                file,
+                available: true,
+                source: usedFallback ? "bundled-fallback" : "active-role",
+              };
+            } catch (error) {
+              return {
+                actionId,
+                file,
+                available: false,
+                source: "missing",
+                error: String(error),
+              };
+            }
+          })
+        );
+
+        const result: PetActionAuditResult = {
+          requestId,
+          characterName: role.roleName,
+          characterFolder: role.character_folder,
+          baseAvatarAvailable,
+          checks,
+        };
+        await appWindow.emit(PET_ACTION_AUDIT_RESULT_EVENT, result);
       }
     );
 
@@ -408,6 +505,8 @@
     if (volumeUnlisten) volumeUnlisten();
     if (dialogHistoryUnlisten) dialogHistoryUnlisten();
     if (behaviorSettingsUnlisten) behaviorSettingsUnlisten();
+    if (actionPreviewUnlisten) actionPreviewUnlisten();
+    if (actionAuditUnlisten) actionAuditUnlisten();
     clearMusicActionTimer();
 
     if (hitTestInterval !== undefined) {
@@ -444,6 +543,7 @@
   let dragVisualActionActive = false;
   let consecutiveClickCount = 0;
   let lastSingleClickAt = 0;
+  let lastSingleClickZone: PetHitZone | null = null;
   let consecutiveHairClickCount = 0;
   let lastHairClickAt = 0;
   const lastHitZone = ref<PetHitZone | null>(null);
@@ -464,17 +564,12 @@
     if (!enabled) {
       consecutiveClickCount = 0;
       lastSingleClickAt = 0;
+      lastSingleClickZone = null;
       consecutiveHairClickCount = 0;
       lastHairClickAt = 0;
       debugClickCount.value = 0;
     }
   });
-
-  const advanceDialogue = () => {
-    manualTriggerContinue();
-    eventQueue.continue();
-    resetInteraction();
-  };
 
   const handleAvatarClick = (zone: PetHitZone) => {
     lastHitZone.value = zone;
@@ -488,8 +583,11 @@
       } else if (clickInteractionsEnabled.value) {
         const now = Date.now();
         consecutiveClickCount =
-          now - lastSingleClickAt <= REPEATED_CLICK_WINDOW_MS ? consecutiveClickCount + 1 : 1;
+          lastSingleClickZone === zone && now - lastSingleClickAt <= REPEATED_CLICK_WINDOW_MS
+            ? consecutiveClickCount + 1
+            : 1;
         lastSingleClickAt = now;
+        lastSingleClickZone = zone;
         debugClickCount.value = consecutiveClickCount;
 
         if (zone === "hair") {
@@ -506,14 +604,13 @@
           lastHairClickAt = 0;
           const candidates =
             consecutiveClickCount >= 3
-              ? RAPID_CLICK_REACTIONS
+              ? RAPID_CLICK_REACTIONS_BY_ZONE[zone]
               : consecutiveClickCount === 2
-                ? REPEATED_CLICK_REACTIONS
+                ? REPEATED_CLICK_REACTIONS_BY_ZONE[zone]
                 : CLICK_REACTIONS_BY_ZONE[zone];
           petActions.playRandomAction(candidates, consecutiveClickCount >= 2);
         }
       }
-      advanceDialogue();
     }, 260);
   };
 
