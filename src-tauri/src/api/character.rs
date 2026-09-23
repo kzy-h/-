@@ -15,7 +15,10 @@ use crate::db::managers::role_repo::RoleRepo;
 use crate::utils::system::open_folder;
 use crate::utils::yaml_file::write_json_as_yaml;
 
-use super::{characters_dir, data_dir, decode_plugin_folder, game_data_dir, resolve_character_dir};
+use super::{
+    SLEEPY_MITA_RESOURCE_FOLDER, characters_dir, data_dir, decode_plugin_folder, game_data_dir,
+    is_sleepy_mita_resource_folder, resolve_character_dir,
+};
 
 const LEGACY_VOICE_MODEL_FIELDS: &[&str] = &[
     "sva_speaker_id",
@@ -559,6 +562,20 @@ pub fn get_pet_action_file(
     let main_avatar = main_root.join("avatar");
     if main_avatar.exists() {
         candidate_dirs.push(main_avatar);
+    }
+
+    // 0.5.6 之前导入的米塔角色目录可能已有基础头像，却没有后来新增的
+    // extra_actions。基础头像存在时 resolve_character_dir 不会整体回退，所以在
+    // 单个动作查找阶段继续补查增强版内置目录，避免新动作静默失效。
+    if is_sleepy_mita_resource_folder(&character_folder)
+        && character_folder != SLEEPY_MITA_RESOURCE_FOLDER
+    {
+        let bundled_root = resolve_character_dir(SLEEPY_MITA_RESOURCE_FOLDER);
+        for directory in [bundled_root.join("extra_actions"), bundled_root.join("avatar")] {
+            if directory.exists() && !candidate_dirs.contains(&directory) {
+                candidate_dirs.push(directory);
+            }
+        }
     }
 
     for script_dir in script_package_dirs() {

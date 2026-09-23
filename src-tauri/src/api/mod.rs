@@ -73,6 +73,16 @@ pub const PLUGIN_ROLE_PREFIX: &str = "plugin:";
 /// 内置到这个目录，并在旧目录失效时兼容回退。
 pub const SLEEPY_MITA_RESOURCE_FOLDER: &str = "瞌睡米塔LingChat角色包";
 
+/// 识别增强版角色包曾经使用过的中英文目录名。
+pub(crate) fn is_sleepy_mita_resource_folder(resource_folder: &str) -> bool {
+    let normalized: String = resource_folder
+        .to_lowercase()
+        .chars()
+        .filter(|character| !matches!(character, '-' | '_' | ' '))
+        .collect();
+    resource_folder.contains("瞌睡米塔") || normalized.contains("sleepymita")
+}
+
 /// 编码插件角色的 resource_folder 值。
 pub fn encode_plugin_folder(plugin_id: &str, folder: &str) -> String {
     format!("{PLUGIN_ROLE_PREFIX}{plugin_id}/{folder}")
@@ -106,7 +116,9 @@ pub fn resolve_character_dir_in(base_data_dir: &std::path::Path, resource_folder
     // 已有存档会保留旧 resource_folder；升级安装后该目录可能不存在，最终表现为
     // “名字和台词正常、整个人物透明”。只在精确目录缺少基础立绘时启用此兼容层，
     // 已正确导入或用户自行修改过的角色目录仍然优先。
-    if resource_folder.contains("瞌睡米塔") && resource_folder != SLEEPY_MITA_RESOURCE_FOLDER {
+    if is_sleepy_mita_resource_folder(resource_folder)
+        && resource_folder != SLEEPY_MITA_RESOURCE_FOLDER
+    {
         let exact_has_avatar = ["png", "webp", "jpg", "jpeg", "gif", "bmp"]
             .iter()
             .any(|ext| exact.join("avatar").join(format!("正常.{ext}")).is_file());
