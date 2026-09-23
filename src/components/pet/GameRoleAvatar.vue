@@ -93,7 +93,12 @@
   import { useUIStore } from "@/stores/modules/ui/ui";
   import "./avatar-animation.css";
   import { toAvatarUrl } from "@/utils/avatarUrl";
-  import { PET_ACTIONS, type PetHitZone, type PetMotionPreset } from "./pet-actions";
+  import {
+    getPetHitZoneFromPoint,
+    PET_ACTIONS,
+    type PetHitZone,
+    type PetMotionPreset,
+  } from "./pet-actions";
 
   const props = withDefaults(
     defineProps<{
@@ -270,11 +275,7 @@
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
 
-    // 米塔立绘为统一的 2:3 透明画布：脸位于上部中央，周围区域主要是头发。
-    // 使用比例坐标后，桌宠整体缩放时命中范围仍保持一致。
-    if (y >= 0.08 && y <= 0.34 && x >= 0.28 && x <= 0.72) return "face";
-    if (y <= 0.44) return "hair";
-    return "body";
+    return getPetHitZoneFromPoint(x, y);
   };
 
   const handleAvatarClick = (event: MouseEvent) => {

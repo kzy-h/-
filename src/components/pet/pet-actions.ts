@@ -22,6 +22,11 @@ export type PetActionId =
 
 export type PetHitZone = "face" | "hair" | "body";
 
+export const PET_ACTION_PREVIEW_EVENT = "pet-action-preview-request";
+export const PET_ACTION_AUDIT_REQUEST_EVENT = "pet-action-audit-request";
+export const PET_ACTION_AUDIT_RESULT_EVENT = "pet-action-audit-result";
+export const SLEEPY_MITA_BUNDLED_FOLDER = "瞌睡米塔LingChat角色包";
+
 export type PetActionFrequency = "low" | "normal" | "high";
 
 export type PetActionCategory = "idle" | "interaction" | "drag" | "status" | "music" | "reminder";
@@ -44,6 +49,31 @@ export interface PetAction {
   interruptible: boolean;
   resumeAfterInterrupt?: boolean;
   motion: PetMotionPreset;
+}
+
+export interface PetActionPreviewPayload {
+  actionId: PetActionId;
+}
+
+export interface PetActionAuditRequest {
+  requestId: string;
+}
+
+export interface PetActionAssetCheck {
+  actionId: PetActionId;
+  file: string;
+  available: boolean;
+  source: "active-role" | "bundled-fallback" | "missing";
+  error?: string;
+}
+
+export interface PetActionAuditResult {
+  requestId: string;
+  characterName: string;
+  characterFolder: string;
+  baseAvatarAvailable: boolean;
+  checks: PetActionAssetCheck[];
+  error?: string;
 }
 
 export const PET_ACTIONS: Record<PetActionId, PetAction> = {
@@ -276,15 +306,46 @@ export const PET_ACTIONS: Record<PetActionId, PetAction> = {
   },
 };
 
+export const PET_ACTION_IDS = Object.keys(PET_ACTIONS) as PetActionId[];
+
+export function isPetActionId(value: unknown): value is PetActionId {
+  return typeof value === "string" && value in PET_ACTIONS;
+}
+
+/**
+ * 瞌睡米塔使用统一的 2:3 透明画布。脸部只占头部中央的一小块，头发则围绕
+ * 脸部向两侧延伸；胸口、肩膀和手臂都应归入身体区。
+ */
+export function getPetHitZoneFromPoint(x: number, y: number): PetHitZone {
+  const normalizedX = Math.min(1, Math.max(0, x));
+  const normalizedY = Math.min(1, Math.max(0, y));
+
+  if (normalizedX >= 0.4 && normalizedX <= 0.6 && normalizedY >= 0.08 && normalizedY <= 0.2) {
+    return "face";
+  }
+  if (normalizedX >= 0.27 && normalizedX <= 0.73 && normalizedY >= 0.015 && normalizedY <= 0.3) {
+    return "hair";
+  }
+  return "body";
+}
+
 export const CLICK_REACTIONS_BY_ZONE: Record<PetHitZone, PetActionId[]> = {
-  face: ["sideEye", "shyTurn", "clickProtest"],
+  face: ["shyTurn", "sideEye"],
   hair: ["hairTouchGentle"],
-  body: ["handsOnHips", "clickProtest", "sideEye"],
+  body: ["handsOnHips", "clickProtest"],
 };
 
-export const REPEATED_CLICK_REACTIONS: PetActionId[] = ["sideEye", "handsOnHips", "clickProtest"];
+export const REPEATED_CLICK_REACTIONS_BY_ZONE: Record<PetHitZone, PetActionId[]> = {
+  face: ["sideEye", "shyTurn"],
+  hair: ["sideEye"],
+  body: ["clickProtest", "handsOnHips"],
+};
 
-export const RAPID_CLICK_REACTIONS: PetActionId[] = ["clickProtest", "handsOnHips"];
+export const RAPID_CLICK_REACTIONS_BY_ZONE: Record<PetHitZone, PetActionId[]> = {
+  face: ["clickProtest", "sideEye"],
+  hair: ["hairTouchAnnoyed"],
+  body: ["clickProtest", "handsOnHips"],
+};
 
 export const DOUBLE_CLICK_REACTIONS: PetActionId[] = ["knock", "happyWave"];
 
