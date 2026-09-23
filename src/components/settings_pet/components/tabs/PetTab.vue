@@ -106,6 +106,133 @@
         duration-300"
       :class="isDarkMode ? 'border-slate-700 bg-slate-800/50' : 'border-slate-200 bg-white'"
     >
+      <ShieldCheck
+        class="absolute -right-4 -bottom-4 h-32 w-32 -rotate-12 opacity-10 transition-all
+          duration-300 group-hover:scale-110"
+        :class="isDarkMode ? 'text-slate-700' : 'text-slate-200'"
+      />
+
+      <div class="relative z-10">
+        <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h3
+              class="mb-1 flex items-center gap-2 text-lg font-bold"
+              :class="isDarkMode ? 'text-slate-200' : 'text-slate-800'"
+            >
+              <ShieldCheck class="h-5 w-5 text-emerald-500" />
+              {{ $t("pet.petTab.assetCheckTitle") }}
+            </h3>
+            <p class="text-xs" :class="isDarkMode ? 'text-slate-400' : 'text-slate-500'">
+              {{ $t("pet.petTab.assetCheckDesc") }}
+            </p>
+          </div>
+          <button
+            type="button"
+            :disabled="auditState === 'checking'"
+            class="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4
+              py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-emerald-400
+              active:scale-95 disabled:cursor-wait disabled:opacity-60"
+            @click="runRolePackAudit"
+          >
+            <RefreshCw class="h-4 w-4" :class="auditState === 'checking' ? 'animate-spin' : ''" />
+            {{
+              auditState === "checking"
+                ? $t("pet.petTab.assetChecking")
+                : $t("pet.petTab.assetCheckButton")
+            }}
+          </button>
+        </div>
+
+        <div
+          class="mt-4 rounded-lg border p-3 text-xs"
+          :class="isDarkMode ? 'border-slate-700 bg-slate-900/40' : 'border-slate-100 bg-slate-50'"
+        >
+          <template v-if="auditState === 'done' && auditResult">
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span class="font-bold" :class="isDarkMode ? 'text-slate-200' : 'text-slate-700'">
+                {{ auditResult.characterName || $t("pet.petTab.assetUnknownRole") }}
+              </span>
+              <span :class="auditResult.baseAvatarAvailable ? 'text-emerald-500' : 'text-rose-500'">
+                {{
+                  auditResult.baseAvatarAvailable
+                    ? $t("pet.petTab.baseAvatarOk")
+                    : $t("pet.petTab.baseAvatarMissing")
+                }}
+              </span>
+              <span :class="missingActionCount === 0 ? 'text-emerald-500' : 'text-amber-500'">
+                {{
+                  $t("pet.petTab.assetCheckSummary", {
+                    available: availableActionCount,
+                    total: auditResult.checks.length,
+                  })
+                }}
+              </span>
+            </div>
+            <p v-if="fallbackActionCount > 0" class="mt-2 text-sky-500">
+              {{ $t("pet.petTab.assetFallbackSummary", { count: fallbackActionCount }) }}
+            </p>
+            <p v-if="missingActionCount > 0" class="mt-2 text-rose-500">
+              {{ $t("pet.petTab.assetMissingList", { files: missingActionFiles.join("、") }) }}
+            </p>
+          </template>
+          <p v-else-if="auditState === 'checking'" class="text-sky-500">
+            {{ $t("pet.petTab.assetCheckingHint") }}
+          </p>
+          <p v-else-if="auditState === 'error'" class="text-rose-500">
+            {{ $t("pet.petTab.assetCheckError") }}
+          </p>
+          <p v-else :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'">
+            {{ $t("pet.petTab.assetCheckIdle") }}
+          </p>
+        </div>
+
+        <div
+          class="mt-5 border-t pt-4"
+          :class="isDarkMode ? 'border-slate-700' : 'border-slate-100'"
+        >
+          <div class="mb-3">
+            <div
+              class="flex items-center gap-2 text-sm font-bold"
+              :class="isDarkMode ? 'text-slate-200' : 'text-slate-700'"
+            >
+              <Play class="h-4 w-4 text-sky-500" />
+              {{ $t("pet.petTab.actionPreviewTitle") }}
+            </div>
+            <p class="mt-1 text-[11px]" :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'">
+              {{ $t("pet.petTab.actionPreviewDesc") }}
+            </p>
+          </div>
+          <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+            <button
+              v-for="actionId in PET_ACTION_IDS"
+              :key="actionId"
+              type="button"
+              :disabled="isActionMissing(actionId)"
+              class="flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs
+                font-medium transition-all hover:-translate-y-0.5 active:translate-y-0
+                disabled:cursor-not-allowed disabled:opacity-40"
+              :class="
+                isDarkMode
+                  ? 'border-slate-700 bg-slate-900/40 text-slate-300 hover:border-sky-500'
+                  : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-sky-400'
+              "
+              @click="previewAction(actionId)"
+            >
+              <Play class="h-3.5 w-3.5 shrink-0 text-sky-500" />
+              <span class="truncate" :title="PET_ACTIONS[actionId].file">
+                {{ formatActionLabel(actionId) }}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="group relative mt-4 overflow-hidden rounded-xl border p-6 shadow-sm transition-colors
+        duration-300"
+      :class="isDarkMode ? 'border-slate-700 bg-slate-800/50' : 'border-slate-200 bg-white'"
+    >
       <SlidersHorizontal
         class="absolute -right-4 -bottom-4 h-32 w-32 -rotate-12 opacity-10 transition-all
           duration-300 group-hover:scale-110"
@@ -402,7 +529,7 @@
 </template>
 
 <script setup lang="ts">
-  import { ref, computed } from "vue";
+  import { ref, computed, onMounted, onUnmounted } from "vue";
   import { useI18n } from "vue-i18n";
   import {
     Ruler,
@@ -415,10 +542,22 @@
     Sun,
     Volume2,
     SlidersHorizontal,
+    ShieldCheck,
+    RefreshCw,
+    Play,
   } from "lucide-vue-next";
   import { useUIStore } from "../../../../stores/modules/ui/ui";
   import type { PetSettings } from "../../../../stores/modules/settings";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import {
+    PET_ACTION_AUDIT_REQUEST_EVENT,
+    PET_ACTION_AUDIT_RESULT_EVENT,
+    PET_ACTION_IDS,
+    PET_ACTION_PREVIEW_EVENT,
+    PET_ACTIONS,
+    type PetActionAuditResult,
+    type PetActionId,
+  } from "../../../pet/pet-actions";
 
   const props = defineProps<{
     isDarkMode: boolean;
@@ -449,6 +588,74 @@
 
   const uiStore = useUIStore();
   const { t } = useI18n();
+  const appWindow = getCurrentWindow();
+
+  const auditState = ref<"idle" | "checking" | "done" | "error">("idle");
+  const auditResult = ref<PetActionAuditResult | null>(null);
+  let activeAuditRequestId = "";
+  let auditResultUnlisten: (() => void) | null = null;
+  let auditTimeoutId: number | null = null;
+
+  const availableActionCount = computed(
+    () => auditResult.value?.checks.filter((item) => item.available).length ?? 0
+  );
+  const missingActionCount = computed(
+    () => auditResult.value?.checks.filter((item) => !item.available).length ?? 0
+  );
+  const fallbackActionCount = computed(
+    () => auditResult.value?.checks.filter((item) => item.source === "bundled-fallback").length ?? 0
+  );
+  const missingActionFiles = computed(
+    () => auditResult.value?.checks.filter((item) => !item.available).map((item) => item.file) ?? []
+  );
+
+  const clearAuditTimeout = () => {
+    if (auditTimeoutId !== null) {
+      window.clearTimeout(auditTimeoutId);
+      auditTimeoutId = null;
+    }
+  };
+
+  const runRolePackAudit = async () => {
+    clearAuditTimeout();
+    auditState.value = "checking";
+    auditResult.value = null;
+    activeAuditRequestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    await appWindow.emit(PET_ACTION_AUDIT_REQUEST_EVENT, { requestId: activeAuditRequestId });
+    auditTimeoutId = window.setTimeout(() => {
+      if (auditState.value === "checking") auditState.value = "error";
+    }, 8000);
+  };
+
+  const previewAction = async (actionId: PetActionId) => {
+    await appWindow.emit(PET_ACTION_PREVIEW_EVENT, { actionId });
+  };
+
+  const formatActionLabel = (actionId: PetActionId) =>
+    PET_ACTIONS[actionId].file.replace(/\.[^.]+$/, "").replace(/^\d+_/, "");
+
+  const isActionMissing = (actionId: PetActionId) =>
+    auditState.value === "done" &&
+    auditResult.value?.checks.some((item) => item.actionId === actionId && !item.available) ===
+      true;
+
+  onMounted(async () => {
+    auditResultUnlisten = await appWindow.listen<PetActionAuditResult>(
+      PET_ACTION_AUDIT_RESULT_EVENT,
+      (event) => {
+        if (event.payload?.requestId !== activeAuditRequestId) return;
+        clearAuditTimeout();
+        auditResult.value = event.payload;
+        auditState.value = event.payload.error ? "error" : "done";
+      }
+    );
+    await runRolePackAudit();
+  });
+
+  onUnmounted(() => {
+    clearAuditTimeout();
+    if (auditResultUnlisten) auditResultUnlisten();
+  });
 
   const currentMode = ref("normal");
   const selectMode = (mode: string) => {
@@ -525,7 +732,6 @@
 
   const selectParticle = async (value: string) => {
     uiStore.setBackgroundEffect(value);
-    const appWindow = getCurrentWindow();
     await appWindow.emit("background-effect-changed", { effect: value });
   };
 
