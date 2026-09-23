@@ -570,6 +570,7 @@
 
   type BooleanBehaviorKey =
     | "clickInteractionEnabled"
+    | "interactionVoiceEnabled"
     | "idleActionsEnabled"
     | "musicActionsEnabled"
     | "preserveSpeakingPoseWhileDragging"
@@ -678,6 +679,11 @@
       key: "clickInteractionEnabled",
       label: t("pet.petTab.clickInteraction"),
       desc: t("pet.petTab.clickInteractionDesc"),
+    },
+    {
+      key: "interactionVoiceEnabled",
+      label: t("pet.petTab.interactionVoice"),
+      desc: t("pet.petTab.interactionVoiceDesc"),
     },
     {
       key: "idleActionsEnabled",
