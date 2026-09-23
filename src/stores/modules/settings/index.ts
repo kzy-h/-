@@ -65,6 +65,7 @@ export const DEFAULT_SETTINGS = {
   pet: {
     scale: 1, // 桌宠缩放比例
     clickInteractionEnabled: true, // 点击不同区域触发动作
+    interactionVoiceEnabled: true, // 点击互动时使用本地 Ling-v2 日语语音
     idleActionsEnabled: true, // 随机待机动作
     musicActionsEnabled: true, // 播放音乐时触发耳机动作
     preserveSpeakingPoseWhileDragging: true, // 说话时拖动保持对话立绘
@@ -131,6 +132,7 @@ export interface CharacterSettings {
 export interface PetSettings {
   scale: number;
   clickInteractionEnabled: boolean;
+  interactionVoiceEnabled: boolean;
   idleActionsEnabled: boolean;
   musicActionsEnabled: boolean;
   preserveSpeakingPoseWhileDragging: boolean;
