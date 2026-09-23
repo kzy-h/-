@@ -48,6 +48,7 @@ export function usePetActions(options: PetActionOptions = {}) {
   const lastInteractionAt = ref(Date.now());
   const actionStartedAt = ref(0);
   const actionEndsAt = ref(0);
+  const actionRunId = ref(0);
   const lastDecision = ref<PetActionDecision>({
     requested: null,
     played: false,
@@ -57,6 +58,7 @@ export function usePetActions(options: PetActionOptions = {}) {
   const actionLastPlayedAt = new Map<PetActionId, number>();
 
   let actionTimer: number | null = null;
+  let actionHeld = false;
   let idleTimer: number | null = null;
   let timeCompanionTimer: number | null = null;
   let suspendedActionId: PetActionId | null = null;
@@ -85,6 +87,9 @@ export function usePetActions(options: PetActionOptions = {}) {
   function startAction(id: PetActionId, reason: string) {
     const action = PET_ACTIONS[id];
     clearActionTimer();
+    actionHeld = false;
+    actionRunId.value += 1;
+    const runId = actionRunId.value;
     currentActionId.value = id;
     actionStartedAt.value = Date.now();
     actionEndsAt.value = action.durationMs > 0 ? actionStartedAt.value + action.durationMs : 0;
@@ -93,7 +98,7 @@ export function usePetActions(options: PetActionOptions = {}) {
     recordDecision(id, true, reason);
 
     if (action.durationMs > 0) {
-      actionTimer = window.setTimeout(() => finishAction(id), action.durationMs);
+      actionTimer = window.setTimeout(() => finishActionRun(id, runId), action.durationMs);
     }
   }
 
@@ -108,12 +113,45 @@ export function usePetActions(options: PetActionOptions = {}) {
   function finishAction(expected?: PetActionId, resume = true) {
     if (expected && currentActionId.value !== expected) return;
     clearActionTimer();
+    actionHeld = false;
     if (currentActionId.value) lastActionId.value = currentActionId.value;
     currentActionId.value = null;
     actionStartedAt.value = 0;
     actionEndsAt.value = 0;
     if (resume) resumeSuspendedAction();
     else suspendedActionId = null;
+  }
+
+  function finishActionRun(id: PetActionId, runId: number, resume = true): boolean {
+    if (currentActionId.value !== id || actionRunId.value !== runId) return false;
+    finishAction(id, resume);
+    return true;
+  }
+
+  function holdAction(id: PetActionId, runId: number): boolean {
+    if (
+      currentActionId.value !== id ||
+      actionRunId.value !== runId ||
+      PET_ACTIONS[id].durationMs <= 0
+    ) {
+      return false;
+    }
+    clearActionTimer();
+    actionHeld = true;
+    return true;
+  }
+
+  function resumeHeldAction(id: PetActionId, runId: number): boolean {
+    if (!actionHeld || currentActionId.value !== id || actionRunId.value !== runId) {
+      return false;
+    }
+
+    actionHeld = false;
+    const remainingMs = Math.max(0, actionEndsAt.value - Date.now());
+    if (remainingMs === 0) return finishActionRun(id, runId);
+
+    actionTimer = window.setTimeout(() => finishActionRun(id, runId), remainingMs);
+    return true;
   }
 
   function playAction(id: PetActionId, force = false): boolean {
@@ -245,11 +283,15 @@ export function usePetActions(options: PetActionOptions = {}) {
     actionFile,
     actionStartedAt,
     actionEndsAt,
+    actionRunId,
     lastDecision,
     reportBlockedAction,
     playAction,
     playRandomAction,
     finishAction,
+    finishActionRun,
+    holdAction,
+    resumeHeldAction,
     noteInteraction,
     refreshIdleSchedule: scheduleIdleAction,
     refreshTimeCompanionSchedule: scheduleTimeCompanionAction,
