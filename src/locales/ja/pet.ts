@@ -28,6 +28,8 @@ export default {
     behaviorDesc: "眠たいミタの動作条件を設定します。変更はすぐに反映されます",
     clickInteraction: "クリック反応",
     clickInteractionDesc: "顔・髪・体をクリックすると異なる反応をします",
+    interactionVoice: "インタラクション音声",
+    interactionVoiceDesc: "ミタのローカル Ling-v2 日本語音声で反応セリフを読み上げます",
     idleActions: "ランダム待機動作",
     idleActionsDesc: "待機中にあくび、のぞき見、休憩をします",
     musicActions: "音楽動作",
